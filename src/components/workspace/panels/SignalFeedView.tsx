@@ -377,7 +377,7 @@ export default function SignalFeedView() {
         const response = await p1Api.getSCOUTAnomalies()
 
         if (response?.data?.anomalies && Array.isArray(response.data.anomalies)) {
-          const signals = response.data.anomalies.map((anomaly, index) =>
+          const signals = response.data.anomalies.map((anomaly: any, index: number) =>
             convertAnomalyToSignal(anomaly, index)
           )
           setMarketSignals(signals)

@@ -119,7 +119,7 @@ export default function HeatMapView() {
 
         if (response?.data && Array.isArray(response.data)) {
           // Compute heat scores from backend data and merge with static data
-          const computedAreas = response.data.map((backendData) => {
+          const computedAreas = response.data.map((backendData: any) => {
             // Find corresponding static metric for ID and other metadata
             const staticMetric = areaHeatMetrics.find(
               (m) => m.area.toLowerCase() === backendData.areaName.toLowerCase()
