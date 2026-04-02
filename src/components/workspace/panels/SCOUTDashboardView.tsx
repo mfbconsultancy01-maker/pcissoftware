@@ -5,14 +5,13 @@ import { p1Api } from '@/lib/api'
 import {
   areas,
   getTopAreas,
-  getAreasSorted,
 } from '@/lib/marketData'
 import {
-  intelFeed,
-  areaMetrics,
-  marketMetrics,
-  macroIndicators,
-  momentumSignals,
+  intelFeed as mockIntelFeed,
+  areaMetrics as mockAreaMetrics,
+  marketMetrics as mockMarketMetrics,
+  macroIndicators as mockMacroIndicators,
+  momentumSignals as mockMomentumSignals,
   type IntelFeedItem,
   type IntelFeedType,
   type MomentumType,
@@ -23,10 +22,60 @@ import { useWorkspaceNav } from '../useWorkspaceNav'
 // ═══════════════════════════════════════════════════════════════════════════
 // E2 SCOUT POWER DASHBOARD — Unified Market Intelligence Engine
 //
-// Follows the E1 CIE layout: StatsBar → SubPanel Cards → Analytics Row →
-// Area Watchlist → Bottom Row. Every data point is market intelligence.
-// This is the showcase of Engine 2's full market tracking power.
+// ALL PANELS NOW PULL FROM THE REAL P1 BACKEND (Railway PostgreSQL).
+// Mock data is used ONLY as fallback if the API call fails.
 // ═══════════════════════════════════════════════════════════════════════════
+
+// ── Types for real backend data ────────────────────────────────────────
+
+interface BackendAreaMetric {
+  areaName: string
+  propertyCount: number
+  avgPrice: number
+  medianPrice: number
+  avgPricePerSqft: number
+  priceChange7d: number
+  priceChange30d: number
+  avgDaysOnMarket: number
+  inventoryCount: number
+  highOpportunityCount: number
+  demandScore: number
+  topPropertyTypes: { type: string; count: number }[]
+  sources: string[]
+}
+
+interface BackendAnomaly {
+  type: string
+  area: string
+  severity: string
+  headline: string
+  detail: string
+  metric: string
+  change: number
+  timeframe: string
+}
+
+interface BackendMacroContext {
+  hasDailyContext: boolean
+  dailyContext: {
+    date: string
+    geoContext: string
+    economicContext: string
+    regulatoryContext: string
+    developerContext: string
+    marketSentiment: string
+    keyEvents: string[]
+    refreshedAt: string
+  } | null
+  embeddedKnowledgeBase: string
+}
+
+interface BackendStatus {
+  totalProperties: number
+  totalAreas: number
+  totalOpportunities: number
+  lastScrapeRun: { source: string; status: string; completedAt: string | null } | null
+}
 
 // ── Formatting ──────────────────────────────────────────────────────────
 
@@ -66,9 +115,10 @@ const getMomentumIcon = (type: string): string => {
 
 const getUrgencyColor = (urgency: string): string => {
   switch (urgency) {
-    case 'High': return '#ef4444'
-    case 'Medium': return '#f59e0b'
-    case 'Low': return '#22c55e'
+    case 'High': case 'high': return '#ef4444'
+    case 'Medium': case 'medium': return '#f59e0b'
+    case 'Low': case 'low': return '#22c55e'
+    case 'critical': return '#dc2626'
     default: return '#9ca3af'
   }
 }
@@ -85,6 +135,16 @@ const getPriceChangeColor = (change: number): string => {
   if (change > 0) return '#06b6d4'
   if (change >= -2) return '#f59e0b'
   return '#ef4444'
+}
+
+const getSeverityColor = (severity: string): string => {
+  switch (severity) {
+    case 'critical': return '#dc2626'
+    case 'high': return '#ef4444'
+    case 'medium': return '#f59e0b'
+    case 'low': return '#22c55e'
+    default: return '#9ca3af'
+  }
 }
 
 // ── SVG Components ──────────────────────────────────────────────────────
@@ -183,24 +243,108 @@ function PanelHeader({ title, accent, right }: { title: string; accent?: string;
 
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TOP STATS BAR — Market Intelligence Metrics
+// REAL DATA HOOK — Fetches all SCOUT data from backend on mount
 // ═══════════════════════════════════════════════════════════════════════════
 
-function SCOUTStatsBar() {
-  const topArea = getTopAreas(1)[0]
-  const highAlerts = intelFeed.filter(i => i.urgency === 'High').length
-  const heatingAreas = momentumSignals.filter(s => s.type === 'heating').length
-  const totalSignals = momentumSignals.length
+interface SCOUTLiveData {
+  status: BackendStatus | null
+  areaMetrics: BackendAreaMetric[]
+  anomalies: BackendAnomaly[]
+  macroContext: BackendMacroContext | null
+  isLoading: boolean
+  isLive: boolean
+  lastRefresh: string | null
+}
+
+function useSCOUTLiveData(): SCOUTLiveData {
+  const [status, setStatus] = useState<BackendStatus | null>(null)
+  const [areaMetrics, setAreaMetrics] = useState<BackendAreaMetric[]>([])
+  const [anomalies, setAnomalies] = useState<BackendAnomaly[]>([])
+  const [macroContext, setMacroContext] = useState<BackendMacroContext | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isLive, setIsLive] = useState(false)
+  const [lastRefresh, setLastRefresh] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function fetchAll() {
+      setIsLoading(true)
+      try {
+        const [statusRes, areasRes, anomalyRes, macroRes] = await Promise.allSettled([
+          p1Api.getSCOUTAgentStatus(),
+          p1Api.getAreaMetrics(),
+          p1Api.getSCOUTAnomalies(),
+          p1Api.getSCOUTMacroContext(),
+        ])
+
+        if (cancelled) return
+
+        if (statusRes.status === 'fulfilled' && statusRes.value?.data) {
+          setStatus(statusRes.value.data)
+          setIsLive(true)
+        }
+        if (areasRes.status === 'fulfilled') {
+          const raw = areasRes.value?.data || areasRes.value
+          if (Array.isArray(raw) && raw.length > 0) {
+            setAreaMetrics(raw)
+          }
+        }
+        if (anomalyRes.status === 'fulfilled' && anomalyRes.value?.data?.anomalies) {
+          setAnomalies(anomalyRes.value.data.anomalies)
+        }
+        if (macroRes.status === 'fulfilled' && macroRes.value?.data) {
+          setMacroContext(macroRes.value.data)
+        }
+
+        setLastRefresh(new Date().toISOString())
+      } catch (err) {
+        console.warn('[SCOUT Dashboard] Failed to fetch live data, using fallbacks')
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
+    }
+    fetchAll()
+    return () => { cancelled = true }
+  }, [])
+
+  return { status, areaMetrics, anomalies, macroContext, isLoading, isLive, lastRefresh }
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TOP STATS BAR — Real Market Intelligence Metrics
+// ═══════════════════════════════════════════════════════════════════════════
+
+function SCOUTStatsBar({ live }: { live: SCOUTLiveData }) {
+  const topArea = live.areaMetrics.length > 0
+    ? [...live.areaMetrics].sort((a, b) => b.demandScore - a.demandScore)[0]
+    : null
+
+  const highAlerts = live.anomalies.filter(a => a.severity === 'critical' || a.severity === 'high').length
+  const heatingAreas = live.areaMetrics.filter(a => a.priceChange7d > 2 || a.demandScore >= 85).length
+  const avgPriceSqft = live.areaMetrics.length > 0
+    ? Math.round(live.areaMetrics.reduce((s, a) => s + a.avgPricePerSqft, 0) / live.areaMetrics.length)
+    : mockMarketMetrics.avgPricePerSqft
+
+  const totalProperties = live.status?.totalProperties || 0
+  const totalAreas = live.status?.totalAreas || live.areaMetrics.length || mockAreaMetrics.length
+  const totalOpportunities = live.status?.totalOpportunities || 0
+
+  // Compute a sentiment score from anomaly distribution
+  const criticalCount = live.anomalies.filter(a => a.severity === 'critical').length
+  const sentimentScore = live.anomalies.length > 0
+    ? Math.max(20, Math.min(95, 80 - Math.round((criticalCount / live.anomalies.length) * 60)))
+    : mockMarketMetrics.marketSentimentScore
 
   const stats = [
-    { label: 'Areas Tracked', value: `${areaMetrics.length}`, color: '#22c55e' },
-    { label: 'Avg Price/SqFt', value: `AED ${marketMetrics.avgPricePerSqft.toLocaleString()}`, color: '#22c55e' },
-    { label: 'Monthly Volume', value: `${marketMetrics.monthlyTransactionVolume}`, color: '#06b6d4' },
-    { label: 'Active Listings', value: `${marketMetrics.totalInventory}`, color: '#d4a574' },
-    { label: 'Top Area', value: topArea?.shortName || 'N/A', color: '#f59e0b' },
-    { label: 'High Alerts', value: `${highAlerts}`, color: highAlerts > 0 ? '#ef4444' : '#22c55e' },
+    { label: 'Areas Tracked', value: `${totalAreas}`, color: '#22c55e' },
+    { label: 'Avg Price/SqFt', value: `AED ${avgPriceSqft.toLocaleString()}`, color: '#22c55e' },
+    { label: 'Properties', value: fmt(totalProperties), color: '#06b6d4' },
+    { label: 'Opportunities', value: `${totalOpportunities}`, color: '#d4a574' },
+    { label: 'Top Area', value: topArea?.areaName?.split(' ').slice(0, 2).join(' ') || 'N/A', color: '#f59e0b' },
+    { label: 'Alerts', value: `${highAlerts}`, color: highAlerts > 5 ? '#ef4444' : '#f59e0b' },
     { label: 'Heating', value: `${heatingAreas}`, color: '#22c55e' },
-    { label: 'Sentiment', value: `${marketMetrics.marketSentimentScore}/100`, color: marketMetrics.marketSentimentScore >= 60 ? '#22c55e' : '#f59e0b' },
+    { label: 'Sentiment', value: `${sentimentScore}/100`, color: sentimentScore >= 60 ? '#22c55e' : '#f59e0b' },
   ]
 
   return (
@@ -214,6 +358,15 @@ function SCOUTStatsBar() {
           </div>
         </React.Fragment>
       ))}
+      {live.isLive && (
+        <>
+          <div className="w-px h-3 bg-pcis-border/30" />
+          <div className="flex items-center gap-1">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-[8px] text-emerald-500/60 font-mono">LIVE</span>
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -223,16 +376,18 @@ function SCOUTStatsBar() {
 // ENGINE SUB-PANEL CARDS — Gateway to SCOUT workspace panels
 // ═══════════════════════════════════════════════════════════════════════════
 
-function SCOUTSubPanelCards() {
+function SCOUTSubPanelCards({ live }: { live: SCOUTLiveData }) {
   const nav = useWorkspaceNav()
-  const topArea = getTopAreas(1)[0]
-  const offPlanCount = intelFeed.filter(i => i.type === 'Developer Launch').length
+  const totalAreas = live.status?.totalAreas || live.areaMetrics.length
+  const totalProperties = live.status?.totalProperties || 0
+  const anomalyCount = live.anomalies.length
+  const macroIndicatorCount = live.macroContext?.hasDailyContext ? 6 : mockMacroIndicators.length
 
   const panels = [
     {
       code: 'ARE', title: 'Area Intelligence',
       desc: 'Sortable grid of all tracked areas with demand scores, pricing, and momentum indicators',
-      metric: `${areaMetrics.length} areas`,
+      metric: `${totalAreas} areas`,
       sub: 'Demand & price tracking',
       color: '#22c55e',
       onClick: () => nav.openPanelByType('area-grid', 'tab'),
@@ -240,15 +395,15 @@ function SCOUTSubPanelCards() {
     {
       code: 'TXN', title: 'Transaction Feed',
       desc: 'Real-time transaction data with volume analysis and YoY trend comparisons',
-      metric: `${marketMetrics.monthlyTransactionVolume} monthly`,
-      sub: '+23% YoY growth',
+      metric: `${fmt(totalProperties)} tracked`,
+      sub: 'Live from DLD',
       color: '#06b6d4',
       onClick: () => nav.openPanelByType('transaction-feed', 'tab'),
     },
     {
       code: 'PRC', title: 'Price Intelligence',
       desc: 'Price per sqft mapping across all areas with historical trend analysis',
-      metric: `AED ${marketMetrics.avgPricePerSqft}/sqft`,
+      metric: live.areaMetrics.length > 0 ? `AED ${Math.round(live.areaMetrics.reduce((s, a) => s + a.avgPricePerSqft, 0) / live.areaMetrics.length)}/sqft` : 'Loading...',
       sub: 'Cross-area comparison',
       color: '#d4a574',
       onClick: () => nav.openPanelByType('price-map', 'tab'),
@@ -256,7 +411,7 @@ function SCOUTSubPanelCards() {
     {
       code: 'CMP', title: 'Comparables Engine',
       desc: 'Side-by-side property and area comparisons with pricing benchmarks',
-      metric: `${areaMetrics.length} areas`,
+      metric: `${totalAreas} areas`,
       sub: 'Automated comps',
       color: '#a78bfa',
       onClick: () => nav.openPanelByType('comparables', 'tab'),
@@ -272,7 +427,7 @@ function SCOUTSubPanelCards() {
     {
       code: 'OFP', title: 'Off-Plan Projects',
       desc: 'New developer launches, payment plans, and project pipeline tracking',
-      metric: `${offPlanCount} launches`,
+      metric: `${live.anomalies.filter(a => a.type === 'developer_activity').length} signals`,
       sub: 'Developer intel',
       color: '#14B8A6',
       onClick: () => nav.openPanelByType('offplan-feed', 'tab'),
@@ -288,15 +443,15 @@ function SCOUTSubPanelCards() {
     {
       code: 'MCR', title: 'Macro Intelligence',
       desc: 'GDP, currency, interest rates, visa policy, and regulatory tracking',
-      metric: `${macroIndicators.length} indicators`,
-      sub: 'Economic overlay',
+      metric: live.macroContext?.hasDailyContext ? 'Live enriched' : 'Embedded',
+      sub: live.macroContext?.dailyContext?.marketSentiment?.split(' ')[0] || 'Economic overlay',
       color: '#ec4899',
       onClick: () => nav.openPanelByType('macro-dashboard', 'tab'),
     },
     {
       code: 'SIG', title: 'Market Signals',
-      desc: 'Momentum signals, heating/cooling areas, and opportunity detection',
-      metric: `${momentumSignals.length} active`,
+      desc: 'Anomaly detection, heating/cooling areas, and opportunity alerts',
+      metric: `${anomalyCount} active`,
       sub: 'Real-time alerts',
       color: '#ef4444',
       onClick: () => nav.openPanelByType('signal-feed', 'tab'),
@@ -321,7 +476,7 @@ function SCOUTSubPanelCards() {
       code: 'NWS', title: 'Dubai News',
       desc: 'Live Dubai real estate and financial news from public sources',
       metric: 'Live feed',
-      sub: 'Real-time articles',
+      sub: live.macroContext?.dailyContext?.refreshedAt ? `Updated ${ago(live.macroContext.dailyContext.refreshedAt)}` : 'Real-time articles',
       color: '#22c55e',
       onClick: () => nav.openNewsFeed(),
     },
@@ -354,42 +509,79 @@ function SCOUTSubPanelCards() {
 
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ANALYTICS ROW — Area Distribution, Price Momentum, Macro Indicators
+// ANALYTICS ROW — Area Distribution, Anomaly Breakdown, Macro Intelligence
 // ═══════════════════════════════════════════════════════════════════════════
 
-function SCOUTAnalyticsRow() {
-  // Area demand distribution donut
+function SCOUTAnalyticsRow({ live }: { live: SCOUTLiveData }) {
+  // Area demand distribution donut -- from real area metrics
   const areaDonut = useMemo(() => {
-    const sorted = [...areaMetrics].sort((a, b) => b.demandScore - a.demandScore)
-    const colors = ['#22c55e', '#06b6d4', '#f59e0b', '#a78bfa', '#d4a574', '#ec4899', '#ef4444', '#14B8A6', '#8B5CF6']
-    return sorted.map((a, i) => ({
-      label: a.areaName.split(' ').map(w => w[0]).join(''),
+    const source = live.areaMetrics.length > 0
+      ? [...live.areaMetrics].sort((a, b) => b.demandScore - a.demandScore).slice(0, 8)
+      : mockAreaMetrics.sort((a, b) => b.demandScore - a.demandScore)
+    const colors = ['#22c55e', '#06b6d4', '#f59e0b', '#a78bfa', '#d4a574', '#ec4899', '#ef4444', '#14B8A6']
+    return source.map((a, i) => ({
+      label: a.areaName.split(' ').map((w: string) => w[0]).join(''),
       fullName: a.areaName,
       value: a.demandScore,
       color: colors[i % colors.length],
     }))
-  }, [])
+  }, [live.areaMetrics])
 
-  // Momentum distribution donut
-  const momentumDonut = useMemo(() => {
-    const counts: Record<MomentumType, number> = { heating: 0, cooling: 0, warning: 0, opportunity: 0 }
-    momentumSignals.forEach(s => { counts[s.type]++ })
-    return [
-      { label: 'Heating', value: counts.heating, color: '#22c55e' },
-      { label: 'Opportunity', value: counts.opportunity, color: '#06b6d4' },
-      { label: 'Warning', value: counts.warning, color: '#f59e0b' },
-      { label: 'Cooling', value: counts.cooling, color: '#ef4444' },
-    ].filter(d => d.value > 0)
-  }, [])
+  // Anomaly type distribution donut -- from real anomalies
+  const anomalyDonut = useMemo(() => {
+    if (live.anomalies.length === 0) {
+      // Fallback to momentum signals
+      const counts: Record<MomentumType, number> = { heating: 0, cooling: 0, warning: 0, opportunity: 0 }
+      mockMomentumSignals.forEach(s => { counts[s.type]++ })
+      return [
+        { label: 'Heating', value: counts.heating, color: '#22c55e' },
+        { label: 'Opportunity', value: counts.opportunity, color: '#06b6d4' },
+        { label: 'Warning', value: counts.warning, color: '#f59e0b' },
+        { label: 'Cooling', value: counts.cooling, color: '#ef4444' },
+      ].filter(d => d.value > 0)
+    }
+    // Real anomaly breakdown
+    const typeCounts: Record<string, number> = {}
+    live.anomalies.forEach(a => { typeCounts[a.type] = (typeCounts[a.type] || 0) + 1 })
+    const typeColors: Record<string, string> = {
+      volume_spike: '#ef4444',
+      developer_activity: '#8B5CF6',
+      price_drop: '#f59e0b',
+      price_surge: '#22c55e',
+      demand_shift: '#06b6d4',
+      inventory_shift: '#d4a574',
+    }
+    return Object.entries(typeCounts).map(([type, count]) => ({
+      label: type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+      value: count,
+      color: typeColors[type] || '#9ca3af',
+    }))
+  }, [live.anomalies])
 
-  // Macro indicators for the grid
-  const keyMacros = useMemo(() => macroIndicators.slice(0, 10), [])
+  // Macro intelligence -- from real macro context or fallback
+  const macroItems = useMemo(() => {
+    if (live.macroContext?.hasDailyContext && live.macroContext.dailyContext) {
+      const ctx = live.macroContext.dailyContext
+      return [
+        { id: 'geo', label: 'Geopolitical', value: ctx.geoContext.substring(0, 60) + '...', trend: 0, color: '#ef4444' },
+        { id: 'econ', label: 'Economic', value: ctx.economicContext.substring(0, 60) + '...', trend: 0, color: '#06b6d4' },
+        { id: 'reg', label: 'Regulatory', value: ctx.regulatoryContext.substring(0, 60) + '...', trend: 0, color: '#f59e0b' },
+        { id: 'dev', label: 'Developer', value: ctx.developerContext.substring(0, 60) + '...', trend: 0, color: '#8B5CF6' },
+        { id: 'sent', label: 'Sentiment', value: ctx.marketSentiment.split(' ')[0] || 'Neutral', trend: 0, color: '#22c55e' },
+        { id: 'events', label: 'Key Events', value: `${ctx.keyEvents.length} tracked`, trend: 0, color: '#d4a574' },
+      ]
+    }
+    return mockMacroIndicators.slice(0, 10)
+  }, [live.macroContext])
+
+  const hasMacroNarrative = live.macroContext?.hasDailyContext
 
   return (
     <div className="grid grid-cols-3 gap-3">
       {/* Area Demand Distribution */}
       <Panel>
-        <PanelHeader title="Area Demand Distribution" accent="#22c55e" />
+        <PanelHeader title="Area Demand Distribution" accent="#22c55e"
+          right={live.isLive ? <span className="text-[7px] text-emerald-500/50 font-mono">LIVE</span> : null} />
         <div className="px-4 py-4 flex items-center gap-4">
           <DonutChart data={areaDonut} size={80} strokeWidth={10} />
           <div className="flex-1">
@@ -406,14 +598,15 @@ function SCOUTAnalyticsRow() {
         </div>
       </Panel>
 
-      {/* Market Momentum */}
+      {/* Anomaly / Momentum Breakdown */}
       <Panel>
-        <PanelHeader title="Market Momentum" accent="#06b6d4" />
+        <PanelHeader title={live.anomalies.length > 0 ? 'Anomaly Breakdown' : 'Market Momentum'} accent="#06b6d4"
+          right={live.anomalies.length > 0 ? <span className="text-[8px] text-cyan-400/50 font-mono">{live.anomalies.length} total</span> : null} />
         <div className="px-4 py-4 flex items-center gap-4">
-          <DonutChart data={momentumDonut} size={80} strokeWidth={10} />
+          <DonutChart data={anomalyDonut} size={80} strokeWidth={10} />
           <div className="flex-1">
             <div className="flex flex-col gap-1.5">
-              {momentumDonut.map(d => (
+              {anomalyDonut.map(d => (
                 <div key={d.label} className="flex items-center gap-2 text-[10px] text-pcis-text-secondary">
                   <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: d.color }} />
                   <span className="flex-1">{d.label}</span>
@@ -425,26 +618,40 @@ function SCOUTAnalyticsRow() {
         </div>
       </Panel>
 
-      {/* Macro Intelligence Map */}
+      {/* Macro Intelligence */}
       <Panel>
-        <PanelHeader title="Macro Intelligence" accent="#a78bfa" />
+        <PanelHeader title="Macro Intelligence" accent="#a78bfa"
+          right={hasMacroNarrative ? <span className="text-[7px] text-purple-400/50 font-mono">ENRICHED</span> : null} />
         <div className="px-4 py-3">
-          <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-            {keyMacros.map(m => (
-              <div key={m.id} className="group">
-                <div className="flex items-center justify-between mb-0.5">
-                  <span className="text-[8px] text-white/50 truncate">{m.label}</span>
-                  <span className="text-[8px] font-mono font-semibold" style={{ color: m.trend > 0 ? '#22c55e' : m.trend < 0 ? '#ef4444' : '#f59e0b' }}>
-                    {m.trend > 0 ? '+' : ''}{m.trend}%
-                  </span>
+          {hasMacroNarrative ? (
+            <div className="flex flex-col gap-2">
+              {macroItems.map((m: any) => (
+                <div key={m.id} className="group">
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className="text-[8px] font-semibold uppercase tracking-wider" style={{ color: m.color }}>{m.label}</span>
+                  </div>
+                  <div className="text-[8px] text-white/50 leading-relaxed truncate">{m.value}</div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[9px] font-mono text-white/80">{m.value}</span>
-                  <MiniSparkline data={m.sparkline} color={m.trend >= 0 ? '#22c55e' : '#ef4444'} width={50} height={14} />
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+              {(macroItems as any[]).map((m: any) => (
+                <div key={m.id} className="group">
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className="text-[8px] text-white/50 truncate">{m.label}</span>
+                    <span className="text-[8px] font-mono font-semibold" style={{ color: m.trend > 0 ? '#22c55e' : m.trend < 0 ? '#ef4444' : '#f59e0b' }}>
+                      {m.trend > 0 ? '+' : ''}{m.trend}%
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[9px] font-mono text-white/80">{m.value}</span>
+                    {m.sparkline && <MiniSparkline data={m.sparkline} color={m.trend >= 0 ? '#22c55e' : '#ef4444'} width={50} height={14} />}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </Panel>
     </div>
@@ -453,30 +660,38 @@ function SCOUTAnalyticsRow() {
 
 
 // ═══════════════════════════════════════════════════════════════════════════
-// AREA WATCHLIST — Power table with market data (mirrors CIE Watchlist)
+// AREA WATCHLIST — Real backend area data
 // ═══════════════════════════════════════════════════════════════════════════
 
-function AreaWatchlist() {
+function AreaWatchlist({ live }: { live: SCOUTLiveData }) {
   const nav = useWorkspaceNav()
 
   const list = useMemo(() => {
-    return [...areaMetrics]
-      .sort((a, b) => b.demandScore - a.demandScore)
-  }, [])
+    if (live.areaMetrics.length > 0) {
+      return [...live.areaMetrics]
+        .sort((a, b) => b.demandScore - a.demandScore)
+        .slice(0, 20) // Show top 20 areas
+    }
+    return [...mockAreaMetrics].sort((a, b) => b.demandScore - a.demandScore)
+  }, [live.areaMetrics])
 
-  // Get momentum for each area
-  const getMomentum = (areaName: string) => {
-    const signal = momentumSignals.find(s => s.area === areaName)
-    return signal?.type || null
-  }
+  // Get anomaly count per area from real data
+  const areaAnomalyCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    live.anomalies.forEach(a => { counts[a.area] = (counts[a.area] || 0) + 1 })
+    return counts
+  }, [live.anomalies])
 
   return (
     <Panel>
       <PanelHeader title="SCOUT Area Watchlist" accent="#22c55e"
         right={
-          <button onClick={() => nav.openPanelByType('area-grid', 'tab')} className="text-[9px] text-pcis-gold/50 hover:text-pcis-gold transition-colors">
-            Full area grid →
-          </button>
+          <div className="flex items-center gap-3">
+            {live.isLive && <span className="text-[7px] text-emerald-500/50 font-mono">{live.areaMetrics.length} areas from DB</span>}
+            <button onClick={() => nav.openPanelByType('area-grid', 'tab')} className="text-[9px] text-pcis-gold/50 hover:text-pcis-gold transition-colors">
+              Full area grid →
+            </button>
+          </div>
         } />
       <div className="overflow-x-auto">
         <table className="w-full text-[10px]">
@@ -487,17 +702,17 @@ function AreaWatchlist() {
               <th className="text-right py-2 px-2 font-normal">Avg Price/SqFt</th>
               <th className="text-center py-2 px-2 font-normal">7d Change</th>
               <th className="text-center py-2 px-2 font-normal">30d Change</th>
-              <th className="text-center py-2 px-2 font-normal">Volume</th>
-              <th className="text-center py-2 px-2 font-normal">Inventory</th>
+              <th className="text-center py-2 px-2 font-normal">Listings</th>
               <th className="text-center py-2 px-2 font-normal">Days on Market</th>
-              <th className="text-center py-2 px-2 font-normal">Momentum</th>
-              <th className="text-right py-2 px-4 font-normal">Clients</th>
+              <th className="text-center py-2 px-2 font-normal">Alerts</th>
+              <th className="text-right py-2 px-4 font-normal">Top Type</th>
             </tr>
           </thead>
           <tbody>
-            {list.map(area => {
-              const momentum = getMomentum(area.areaName)
+            {list.map((area: any) => {
+              const alertCount = areaAnomalyCounts[area.areaName] || 0
               const areaProfile = areas.find(a => a.name === area.areaName)
+              const topType = area.topPropertyTypes?.[0]
 
               return (
                 <tr key={area.areaName}
@@ -513,38 +728,33 @@ function AreaWatchlist() {
                     <DemandRing score={area.demandScore} size={22} strokeWidth={2} />
                   </td>
                   <td className="py-2 px-2 text-right">
-                    <span className="text-[10px] font-mono text-white/80">AED {area.avgPricePerSqft.toLocaleString()}</span>
+                    <span className="text-[10px] font-mono text-white/80">AED {area.avgPricePerSqft?.toLocaleString()}</span>
                   </td>
                   <td className="py-2 px-2 text-center">
-                    <span className="text-[9px] font-mono" style={{ color: getPriceChangeColor(area.priceChange7d) }}>
-                      {area.priceChange7d > 0 ? '+' : ''}{area.priceChange7d.toFixed(1)}%
+                    <span className="text-[9px] font-mono" style={{ color: getPriceChangeColor(area.priceChange7d || 0) }}>
+                      {(area.priceChange7d || 0) > 0 ? '+' : ''}{(area.priceChange7d || 0).toFixed(1)}%
                     </span>
                   </td>
                   <td className="py-2 px-2 text-center">
-                    <span className="text-[9px] font-mono" style={{ color: getPriceChangeColor(area.priceChange30d) }}>
-                      {area.priceChange30d > 0 ? '+' : ''}{area.priceChange30d.toFixed(1)}%
+                    <span className="text-[9px] font-mono" style={{ color: getPriceChangeColor(area.priceChange30d || 0) }}>
+                      {(area.priceChange30d || 0) > 0 ? '+' : ''}{(area.priceChange30d || 0).toFixed(1)}%
                     </span>
                   </td>
                   <td className="py-2 px-2 text-center">
-                    <span className="text-[10px] font-mono text-white/60">{area.monthlyVolume}</span>
+                    <span className="text-[10px] font-mono text-white/60">{(area.inventoryCount || area.propertyCount || 0).toLocaleString()}</span>
                   </td>
                   <td className="py-2 px-2 text-center">
-                    <span className="text-[10px] font-mono text-white/60">{area.inventoryCount}</span>
-                  </td>
-                  <td className="py-2 px-2 text-center">
-                    <span className="text-[10px] font-mono" style={{ color: area.daysOnMarket <= 35 ? '#22c55e' : area.daysOnMarket <= 50 ? '#f59e0b' : '#ef4444' }}>
-                      {area.daysOnMarket}d
+                    <span className="text-[10px] font-mono" style={{ color: (area.avgDaysOnMarket || 0) <= 35 ? '#22c55e' : (area.avgDaysOnMarket || 0) <= 50 ? '#f59e0b' : '#ef4444' }}>
+                      {area.avgDaysOnMarket || 0}d
                     </span>
                   </td>
                   <td className="py-2 px-2 text-center">
-                    {momentum ? (
-                      <span className="text-[9px] font-mono" style={{ color: getMomentumColor(momentum) }}>
-                        {getMomentumIcon(momentum)}
-                      </span>
-                    ) : <span className="text-pcis-text-muted/30">→</span>}
+                    {alertCount > 0 ? (
+                      <span className="text-[9px] font-mono text-red-400">{alertCount}</span>
+                    ) : <span className="text-pcis-text-muted/30">0</span>}
                   </td>
                   <td className="py-2 px-4 text-right">
-                    <span className="text-[9px] font-mono text-pcis-text-secondary">{area.activeClientIds.length}</span>
+                    <span className="text-[9px] font-mono text-pcis-text-secondary">{topType ? `${topType.type} (${topType.count})` : '--'}</span>
                   </td>
                 </tr>
               )
@@ -558,159 +768,207 @@ function AreaWatchlist() {
 
 
 // ═══════════════════════════════════════════════════════════════════════════
-// BOTTOM ROW — Priority Alerts, Momentum Signals, Latest Intel, Market Data
+// BOTTOM ROW — Anomaly Alerts, Macro Events, Key Events, Market Data
 // ═══════════════════════════════════════════════════════════════════════════
 
-function SCOUTBottomRow() {
+function SCOUTBottomRow({ live }: { live: SCOUTLiveData }) {
   const nav = useWorkspaceNav()
 
-  // Priority Alerts — market movements (price changes, market signals)
-  const priorityAlerts = useMemo(() =>
-    intelFeed
+  // Priority Alerts -- from real anomalies (critical + high severity)
+  const priorityAlerts = useMemo(() => {
+    if (live.anomalies.length > 0) {
+      return [...live.anomalies]
+        .filter(a => a.severity === 'critical' || a.severity === 'high')
+        .sort((a, b) => {
+          const sevOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
+          return (sevOrder[a.severity] || 3) - (sevOrder[b.severity] || 3)
+        })
+        .slice(0, 6)
+    }
+    return mockIntelFeed
       .filter(i => i.type === 'Price Change' || i.type === 'Market Signal')
       .sort((a, b) => {
         const urgencyOrder = { High: 0, Medium: 1, Low: 2 }
-        const ua = urgencyOrder[a.urgency as keyof typeof urgencyOrder] ?? 2
-        const ub = urgencyOrder[b.urgency as keyof typeof urgencyOrder] ?? 2
-        if (ua !== ub) return ua - ub
-        return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        return (urgencyOrder[a.urgency as keyof typeof urgencyOrder] ?? 2) - (urgencyOrder[b.urgency as keyof typeof urgencyOrder] ?? 2)
       })
-      .slice(0, 5),
-  [])
+      .slice(0, 5)
+  }, [live.anomalies])
 
-  // Active momentum signals
-  const activeSignals = useMemo(() =>
-    [...momentumSignals]
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-      .slice(0, 5),
-  [])
+  // Macro events from enrichment
+  const macroEvents = useMemo(() => {
+    if (live.macroContext?.hasDailyContext && live.macroContext.dailyContext?.keyEvents) {
+      return live.macroContext.dailyContext.keyEvents.slice(0, 5)
+    }
+    return []
+  }, [live.macroContext])
 
-  // Latest intel (all types)
-  const latestIntel = useMemo(() =>
-    [...intelFeed]
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-      .slice(0, 5),
-  [])
+  // Area signals -- top movers from real data
+  const areaSignals = useMemo(() => {
+    if (live.areaMetrics.length > 0) {
+      const withChange = live.areaMetrics.filter(a => a.priceChange7d !== 0 || a.priceChange30d !== 0)
+      if (withChange.length > 0) {
+        return [...withChange].sort((a, b) => Math.abs(b.priceChange30d) - Math.abs(a.priceChange30d)).slice(0, 5)
+      }
+      // Even without price changes, show top areas by demand
+      return [...live.areaMetrics].sort((a, b) => b.demandScore - a.demandScore).slice(0, 5)
+    }
+    return []
+  }, [live.areaMetrics])
 
-  // Key macro data points
-  const keyRates = useMemo(() =>
-    macroIndicators.filter(m => ['mortgage', 'usd_aed', 'gbp_aed', 'eur_aed', 'dld_volume'].includes(m.id)),
-  [])
+  // Top areas for market data panel
+  const topAreas = useMemo(() => {
+    return live.areaMetrics.length > 0
+      ? [...live.areaMetrics].sort((a, b) => b.demandScore - a.demandScore).slice(0, 5)
+      : mockAreaMetrics.slice(0, 3).sort((a, b) => b.demandScore - a.demandScore)
+  }, [live.areaMetrics])
 
   return (
     <div className="grid grid-cols-4 gap-3">
-      {/* Priority Alerts — Market Movements */}
+      {/* Priority Alerts -- Real anomalies */}
       <Panel>
         <PanelHeader title="Priority Alerts" accent="#ef4444"
-          right={<button onClick={() => nav.openPanelByType('signal-feed', 'tab')} className="text-[9px] text-pcis-gold/50 hover:text-pcis-gold transition-colors">SIG →</button>} />
+          right={<span className="text-[8px] text-red-400/50 font-mono">{live.anomalies.length} total</span>} />
         <div className="divide-y divide-pcis-border/10">
-          {priorityAlerts.map(alert => (
-            <div key={alert.id}
-              className="px-4 py-2.5 hover:bg-pcis-gold/[0.02] transition-colors cursor-pointer">
-              <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                  <span className="text-[8px] flex-shrink-0" style={{ color: getUrgencyColor(alert.urgency) }}>●</span>
-                  <span className="text-[10px] text-white/70 font-medium truncate">{alert.headline}</span>
+          {live.anomalies.length > 0 ? (
+            (priorityAlerts as BackendAnomaly[]).map((alert, idx) => (
+              <div key={idx} className="px-4 py-2.5 hover:bg-pcis-gold/[0.02] transition-colors cursor-pointer">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                    <span className="text-[8px] flex-shrink-0" style={{ color: getSeverityColor(alert.severity) }}>●</span>
+                    <span className="text-[10px] text-white/70 font-medium truncate">{alert.headline}</span>
+                  </div>
+                  <span className="text-[7px] font-mono uppercase px-1.5 py-[1px] rounded flex-shrink-0 ml-2"
+                    style={{ backgroundColor: `${getSeverityColor(alert.severity)}15`, color: getSeverityColor(alert.severity) }}>
+                    {alert.severity}
+                  </span>
                 </div>
-                <span className="text-[7px] font-mono uppercase px-1.5 py-[1px] rounded flex-shrink-0 ml-2"
-                  style={{ backgroundColor: `${getUrgencyColor(alert.urgency)}15`, color: getUrgencyColor(alert.urgency) }}>
-                  {alert.urgency}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[8px] text-white/50">{alert.area}</span>
+                  <span className="text-[7px] text-pcis-text-muted font-mono">{alert.type.replace(/_/g, ' ')}</span>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                {alert.metadata?.areaName && (
-                  <span className="text-[8px] text-white/50">{alert.metadata.areaName}</span>
-                )}
-                <span className="text-[7px] text-pcis-text-muted font-mono">{ago(alert.timestamp)}</span>
+            ))
+          ) : (
+            (priorityAlerts as IntelFeedItem[]).map((alert: any) => (
+              <div key={alert.id} className="px-4 py-2.5 hover:bg-pcis-gold/[0.02] transition-colors cursor-pointer">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                    <span className="text-[8px] flex-shrink-0" style={{ color: getUrgencyColor(alert.urgency) }}>●</span>
+                    <span className="text-[10px] text-white/70 font-medium truncate">{alert.headline}</span>
+                  </div>
+                  <span className="text-[7px] font-mono uppercase px-1.5 py-[1px] rounded flex-shrink-0 ml-2"
+                    style={{ backgroundColor: `${getUrgencyColor(alert.urgency)}15`, color: getUrgencyColor(alert.urgency) }}>
+                    {alert.urgency}
+                  </span>
+                </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
           {priorityAlerts.length === 0 && (
             <div className="px-4 py-6 text-center text-[9px] text-pcis-text-muted/40">No active alerts</div>
           )}
         </div>
       </Panel>
 
-      {/* Momentum Signals */}
+      {/* Macro Events -- from live news enrichment */}
       <Panel>
-        <PanelHeader title="Momentum Signals" accent="#22c55e"
-          right={<button onClick={() => nav.openPanelByType('signal-feed', 'tab')} className="text-[9px] text-pcis-gold/50 hover:text-pcis-gold transition-colors">SIG →</button>} />
+        <PanelHeader title={macroEvents.length > 0 ? 'Live Market Events' : 'Momentum Signals'} accent="#22c55e"
+          right={macroEvents.length > 0 ? <span className="text-[7px] text-emerald-500/50 font-mono">NEWS</span> : null} />
         <div className="divide-y divide-pcis-border/10">
-          {activeSignals.map(sig => (
-            <div key={sig.id}
-              className="px-4 py-2.5 hover:bg-pcis-gold/[0.02] transition-colors cursor-pointer">
-              <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] font-mono" style={{ color: getMomentumColor(sig.type) }}>
-                    {getMomentumIcon(sig.type)}
-                  </span>
-                  <span className="text-[10px] text-white/60">{sig.area}</span>
-                </div>
-                <span className="text-[8px] font-mono" style={{ color: getMomentumColor(sig.type) }}>
-                  {sig.change > 0 ? '+' : ''}{sig.change}%
-                </span>
+          {macroEvents.length > 0 ? (
+            macroEvents.map((event, idx) => (
+              <div key={idx} className="px-4 py-2.5 hover:bg-pcis-gold/[0.02] transition-colors">
+                <div className="text-[9px] text-white/60 leading-relaxed">{event.replace(/^[•\-]\s*/, '')}</div>
               </div>
-              <div className="text-[8px] text-white/40 truncate">{sig.signal}</div>
-            </div>
-          ))}
+            ))
+          ) : (
+            mockMomentumSignals.slice(0, 5).map(sig => (
+              <div key={sig.id} className="px-4 py-2.5 hover:bg-pcis-gold/[0.02] transition-colors cursor-pointer">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-mono" style={{ color: getMomentumColor(sig.type) }}>
+                      {getMomentumIcon(sig.type)}
+                    </span>
+                    <span className="text-[10px] text-white/60">{sig.area}</span>
+                  </div>
+                  <span className="text-[8px] font-mono" style={{ color: getMomentumColor(sig.type) }}>
+                    {sig.change > 0 ? '+' : ''}{sig.change}%
+                  </span>
+                </div>
+                <div className="text-[8px] text-white/40 truncate">{sig.signal}</div>
+              </div>
+            ))
+          )}
         </div>
       </Panel>
 
-      {/* Latest Intel */}
+      {/* Area Signals -- top movers from real data */}
       <Panel>
-        <PanelHeader title="Latest Intel" accent="#d4a574"
+        <PanelHeader title="Top Area Signals" accent="#d4a574"
           right={<span className="text-[8px] text-white/30 font-mono">SCOUT</span>} />
         <div className="divide-y divide-pcis-border/10">
-          {latestIntel.map(item => {
-            const typeColor = intelTypeColors[item.type as IntelFeedType] || '#ffffff'
-            return (
-              <div key={item.id}
-                className="px-4 py-2.5 hover:bg-pcis-gold/[0.02] transition-colors cursor-pointer">
+          {areaSignals.length > 0 ? (
+            areaSignals.map((area, idx) => (
+              <div key={idx} className="px-4 py-2.5 hover:bg-pcis-gold/[0.02] transition-colors cursor-pointer">
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                    <span className="text-[7px] font-mono font-bold uppercase px-1 py-[1px] rounded flex-shrink-0"
-                      style={{ backgroundColor: `${typeColor}20`, color: typeColor }}>
-                      {item.type.substring(0, 3)}
-                    </span>
-                    <span className="text-[10px] text-white/60 truncate">{item.headline}</span>
+                    <DemandRing score={area.demandScore} size={16} strokeWidth={2} />
+                    <span className="text-[10px] text-white/60 truncate">{area.areaName}</span>
                   </div>
-                  <span className="text-[7px] text-pcis-text-muted font-mono flex-shrink-0 ml-2">{ago(item.timestamp)}</span>
+                  <span className="text-[8px] font-mono" style={{ color: getPriceChangeColor(area.priceChange30d) }}>
+                    {area.priceChange30d > 0 ? '+' : ''}{area.priceChange30d.toFixed(1)}%
+                  </span>
                 </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-[8px] text-white/40">AED {area.avgPricePerSqft.toLocaleString()}/sqft</span>
+                  <span className="text-[8px] text-white/40">{area.propertyCount.toLocaleString()} listings</span>
+                </div>
+              </div>
+            ))
+          ) : (
+            mockIntelFeed.slice(0, 5).map(item => (
+              <div key={item.id} className="px-4 py-2.5 hover:bg-pcis-gold/[0.02] transition-colors cursor-pointer">
+                <div className="text-[10px] text-white/60 truncate">{item.headline}</div>
                 <div className="text-[8px] text-white/40 truncate">{item.description}</div>
               </div>
-            )
-          })}
+            ))
+          )}
         </div>
       </Panel>
 
-      {/* Market Data */}
+      {/* Market Data -- Real area breakdown */}
       <Panel>
         <PanelHeader title="Market Data" accent="#06b6d4"
           right={<button onClick={() => nav.openPanelByType('macro-dashboard', 'tab')} className="text-[9px] text-pcis-gold/50 hover:text-pcis-gold transition-colors">MCR →</button>} />
         <div className="divide-y divide-pcis-border/10">
-          {keyRates.map(macro => (
-            <div key={macro.id}
-              className="px-4 py-2.5 hover:bg-pcis-gold/[0.02] transition-colors cursor-pointer"
-              onClick={() => nav.openPanelByType('macro-dashboard', 'tab')}>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[10px] text-white/60">{macro.label}</span>
-                <span className="text-[8px] font-mono" style={{ color: macro.trend >= 0 ? '#22c55e' : '#ef4444' }}>
-                  {macro.trend > 0 ? '+' : ''}{macro.trend}%
-                </span>
+          {/* Market stats summary */}
+          <div className="px-4 py-2.5">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <span className="text-[8px] text-pcis-text-muted">Properties</span>
+                <div className="text-[11px] font-mono font-semibold text-white/80">{fmt(live.status?.totalProperties || 0)}</div>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-mono font-semibold text-white/80">{macro.value}</span>
-                <MiniSparkline data={macro.sparkline} color={macro.trend >= 0 ? '#22c55e' : '#ef4444'} width={60} height={14} />
+              <div>
+                <span className="text-[8px] text-pcis-text-muted">Opportunities</span>
+                <div className="text-[11px] font-mono font-semibold text-cyan-400">{live.status?.totalOpportunities || 0}</div>
+              </div>
+              <div>
+                <span className="text-[8px] text-pcis-text-muted">Anomalies</span>
+                <div className="text-[11px] font-mono font-semibold text-red-400">{live.anomalies.length}</div>
+              </div>
+              <div>
+                <span className="text-[8px] text-pcis-text-muted">Last Scrape</span>
+                <div className="text-[11px] font-mono font-semibold text-white/60">{live.status?.lastScrapeRun?.completedAt ? ago(live.status.lastScrapeRun.completedAt) : '--'}</div>
               </div>
             </div>
-          ))}
+          </div>
           {/* Top Areas micro-bar */}
           <div className="px-4 py-2.5">
-            <span className="text-[8px] text-pcis-text-muted uppercase tracking-wider">Top Areas</span>
+            <span className="text-[8px] text-pcis-text-muted uppercase tracking-wider">Top Areas by Demand</span>
             <div className="space-y-1.5 mt-1.5">
-              {areaMetrics.slice(0, 3).sort((a, b) => b.demandScore - a.demandScore).map(area => (
+              {topAreas.map((area: any) => (
                 <div key={area.areaName} className="flex items-center gap-2">
-                  <span className="text-[8px] text-white/50 w-24 truncate">{area.areaName}</span>
+                  <span className="text-[8px] text-white/50 w-28 truncate">{area.areaName}</span>
                   <div className="flex-1 h-[3px] bg-white/[0.04] rounded-full overflow-hidden">
                     <div className="h-full rounded-full" style={{
                       width: `${area.demandScore}%`,
@@ -731,7 +989,7 @@ function SCOUTBottomRow() {
 
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SCOUT AGENT CHAT — Conversational Market Intelligence
+// SCOUT AGENT CHAT — Conversational Market Intelligence (Already wired)
 // ═══════════════════════════════════════════════════════════════════════════
 
 type ChatMsg = { role: 'user' | 'assistant'; content: string }
@@ -861,6 +1119,8 @@ function SCOUTAgentChat() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export default function SCOUTDashboardView(): React.ReactElement {
+  const live = useSCOUTLiveData()
+
   return (
     <div className="h-full flex flex-col overflow-y-auto">
       <div className="flex-1 space-y-4 pb-6">
@@ -877,34 +1137,43 @@ export default function SCOUTDashboardView(): React.ReactElement {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {live.isLive && (
+              <span className="text-[8px] text-emerald-500/60 font-mono">
+                {live.status?.totalProperties?.toLocaleString()} properties · {live.status?.totalAreas} areas
+              </span>
+            )}
+            {live.isLoading && <span className="text-[8px] text-pcis-text-muted/40 font-mono animate-pulse">Loading...</span>}
             <span className="text-[8px] text-pcis-text-muted/40 font-mono">E2-SCOUT</span>
-            <div className="w-2 h-2 rounded-full bg-emerald-500/60 animate-pulse" />
+            <div className={`w-2 h-2 rounded-full ${live.isLive ? 'bg-emerald-500/60' : 'bg-yellow-500/60'} animate-pulse`} />
           </div>
         </div>
 
         {/* Stats Bar */}
         <div className="flex-shrink-0 py-2.5 px-4 bg-white/[0.01] border border-pcis-border/20 rounded-lg">
-          <SCOUTStatsBar />
+          <SCOUTStatsBar live={live} />
         </div>
 
         {/* Sub-Panel Gateway Cards */}
-        <SCOUTSubPanelCards />
+        <SCOUTSubPanelCards live={live} />
 
         {/* Analytics Row */}
-        <SCOUTAnalyticsRow />
+        <SCOUTAnalyticsRow live={live} />
 
         {/* Area Watchlist */}
-        <AreaWatchlist />
+        <AreaWatchlist live={live} />
 
         {/* SCOUT Agent Chat */}
         <SCOUTAgentChat />
 
         {/* Bottom Row */}
-        <SCOUTBottomRow />
+        <SCOUTBottomRow live={live} />
 
-        {/* Footer Hint */}
+        {/* Footer */}
         <div className="text-center text-[8px] text-pcis-text-muted/30 font-mono py-2">
-          Click any panel card to open in workspace · SCOUT tracks {areaMetrics.length} areas across Dubai in real-time
+          {live.isLive
+            ? `SCOUT tracking ${live.status?.totalAreas || 0} areas · ${live.status?.totalProperties?.toLocaleString() || 0} properties · ${live.anomalies.length} anomalies · Data from Railway PostgreSQL`
+            : `Click any panel card to open in workspace · SCOUT tracks ${mockAreaMetrics.length} areas across Dubai in real-time`
+          }
         </div>
       </div>
     </div>

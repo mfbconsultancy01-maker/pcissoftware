@@ -348,6 +348,16 @@ export const p1Api = {
     return data
   },
 
+  getSCOUTMacroContext: async () => {
+    const data = await p1Request('/api/scout-agent/macro-context')
+    return data
+  },
+
+  triggerSCOUTEnrichment: async () => {
+    const data = await p1Request('/api/scout-agent/enrich', { method: 'POST' })
+    return data
+  },
+
   // ── ENGINE: Matching ────────────────────────────────────────────────────
   getMatches: async (params?: { status?: string; page?: number; limit?: number }) => {
     const query = new URLSearchParams()
