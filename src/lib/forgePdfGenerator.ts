@@ -133,123 +133,160 @@ export function generateDealMemorandum(data: DealPdfData): void {
   const chk = (need: number) => { if (y + need > PH - 20) newPg() }
 
   // ════════════════════════════════════════════════════════════════════════
-  // PAGE 1 -- CLEAN TITLE PAGE
+  // PAGE 1 -- CLEAN TITLE PAGE (centred)
   // ════════════════════════════════════════════════════════════════════════
+  const CX = PW / 2  // centre x
   doc.setFillColor(GOLD); doc.rect(0, 0, PW, 2, 'F')
 
-  // Brand
-  y = 25
+  // Brand (centred)
+  y = 30
   doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(GOLD)
-  doc.text('P C I S   S O L U T I O N S', ML, y)
+  doc.text('P C I S   S O L U T I O N S', CX, y, { align: 'center' })
   doc.setFont('helvetica', 'normal'); doc.setFontSize(6.5); doc.setTextColor(TEXT_3)
-  doc.text('Property & Client Intelligence', ML, y + 4)
+  doc.text('Property & Client Intelligence', CX, y + 5, { align: 'center' })
 
-  // Gold rule
-  y = 42
+  // Gold rule (centred)
+  y = 46
   doc.setDrawColor(GOLD); doc.setLineWidth(0.8)
-  doc.line(ML, y, ML + 32, y)
+  doc.line(CX - 16, y, CX + 16, y)
 
-  // Title
-  y = 58
+  // Title (centred)
+  y = 62
   doc.setFont('helvetica', 'bold'); doc.setFontSize(32); doc.setTextColor(TEXT_1)
-  doc.text('Deal Intelligence', ML, y)
-  doc.text('Memorandum', ML, y + 13)
+  doc.text('Deal Intelligence', CX, y, { align: 'center' })
+  doc.text('Memorandum', CX, y + 13, { align: 'center' })
 
   y += 17
   doc.setDrawColor(GOLD); doc.setLineWidth(1)
-  doc.line(ML, y, ML + 50, y)
+  doc.line(CX - 25, y, CX + 25, y)
 
-  // ── Client / Property block ────────────────────────────────────────────
-  y += 14
+  // ── Client / Property block (centred) ──────────────────────────────────
+  y += 12
+  const blockW = CW - 20   // slightly narrower than full width for elegance
+  const blockX = (PW - blockW) / 2
   doc.setFillColor(CREAM); doc.setDrawColor(GOLD); doc.setLineWidth(0.2)
-  doc.roundedRect(ML, y, CW, 48, 2, 2, 'FD')
+  doc.roundedRect(blockX, y, blockW, 80, 2, 2, 'FD')
 
   const bTop = y
 
   // Client
   doc.setFont('helvetica', 'normal'); doc.setFontSize(6); doc.setTextColor(TEXT_3)
-  doc.text('PREPARED FOR', ML + 7, bTop + 9)
+  doc.text('PREPARED FOR', CX, bTop + 9, { align: 'center' })
   doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.setTextColor(TEXT_1)
-  doc.text(data.clientName, ML + 7, bTop + 18)
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(GOLD_DARK)
-  doc.text(`${data.clientType}${data.dealStage ? '  |  ' + data.dealStage : ''}`, ML + 7, bTop + 24)
+  doc.text(data.clientName, CX, bTop + 18, { align: 'center' })
 
   // Divider
   doc.setDrawColor(BORDER); doc.setLineWidth(0.15)
-  doc.line(ML + 7, bTop + 28, PW - MR - 7, bTop + 28)
+  doc.line(blockX + 20, bTop + 24, blockX + blockW - 20, bTop + 24)
 
   // Property
   doc.setFont('helvetica', 'normal'); doc.setFontSize(6); doc.setTextColor(TEXT_3)
-  doc.text('SUBJECT PROPERTY', ML + 7, bTop + 33)
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(TEXT_1)
-  doc.text(data.propertyName || 'Property', ML + 7, bTop + 40)
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(TEXT_2)
-  doc.text(data.propertyArea || '', ML + 7, bTop + 45)
+  doc.text('SUBJECT PROPERTY', CX, bTop + 31, { align: 'center' })
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(TEXT_1)
+  doc.text(data.propertyName || 'Property', CX, bTop + 39, { align: 'center' })
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(TEXT_2)
+  doc.text(data.propertyArea || '', CX, bTop + 45, { align: 'center' })
 
-  // ── Confidentiality & Date ─────────────────────────────────────────────
-  y = PH - 42
+  // Property details row (centred)
+  const details: string[] = []
+  if (data.propertyType) details.push(data.propertyType)
+  if (data.propertyBedrooms) details.push(`${data.propertyBedrooms} Bedrooms`)
+  if (data.propertySqft) details.push(`${data.propertySqft.toLocaleString()} sq ft`)
+  if (data.propertyPrice) {
+    const p = data.propertyPrice
+    details.push(p >= 1e6 ? `AED ${(p / 1e6).toFixed(1)}M` : `AED ${p.toLocaleString()}`)
+  }
+
+  if (details.length > 0) {
+    doc.setDrawColor(BORDER); doc.setLineWidth(0.15)
+    doc.line(blockX + 20, bTop + 50, blockX + blockW - 20, bTop + 50)
+
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(6); doc.setTextColor(TEXT_3)
+    doc.text('PROPERTY DETAILS', CX, bTop + 57, { align: 'center' })
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(TEXT_1)
+    doc.text(details.join('   |   '), CX, bTop + 64, { align: 'center' })
+  }
+
+  // Date inside block
+  doc.setDrawColor(BORDER); doc.setLineWidth(0.15)
+  doc.line(blockX + 20, bTop + 70, blockX + blockW - 20, bTop + 70)
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(TEXT_2)
+  doc.text(date, CX, bTop + 77, { align: 'center' })
+
+  // ── Confidentiality ────────────────────────────────────────────────────
+  y = PH - 38
   doc.setDrawColor(BORDER); doc.setLineWidth(0.15)
   doc.line(ML, y, PW - MR, y)
   y += 5
   doc.setFont('helvetica', 'bold'); doc.setFontSize(5.5); doc.setTextColor(TEXT_3)
-  doc.text('STRICTLY PRIVATE & CONFIDENTIAL', ML, y)
+  doc.text('STRICTLY PRIVATE & CONFIDENTIAL', CX, y, { align: 'center' })
   y += 3.5
   doc.setFont('helvetica', 'normal'); doc.setFontSize(5.5)
   const cLines = wrap(doc, 'This document has been prepared exclusively for the intended recipient by PCIS Solutions. It contains proprietary research and analysis. Reproduction or distribution without written consent is prohibited.', CW, 5.5)
-  for (const l of cLines) { doc.text(l, ML, y); y += 2.8 }
-  y += 3
-  doc.setFontSize(7.5); doc.setTextColor(TEXT_2); doc.text(date, ML, y)
+  for (const l of cLines) { doc.text(l, CX, y, { align: 'center' }); y += 2.8 }
 
   // Cover footer
   doc.setDrawColor(GOLD); doc.setLineWidth(0.3)
   doc.line(ML, PH - 14, PW - MR, PH - 14)
   doc.setFontSize(6); doc.setTextColor(TEXT_3)
-  doc.text('PCIS Solutions  |  Confidential', ML, PH - 10)
+  doc.text('PCIS Solutions  |  Confidential', CX, PH - 10, { align: 'center' })
   doc.setFillColor(GOLD); doc.rect(0, PH - 2, PW, 2, 'F')
 
   // ════════════════════════════════════════════════════════════════════════
-  // PAGE 2 -- TABLE OF CONTENTS
+  // PAGE 2 -- TABLE OF CONTENTS (vertically centred)
   // ════════════════════════════════════════════════════════════════════════
   doc.addPage(); pg++; pageHeader()
-
-  y = 32
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.setTextColor(TEXT_1)
-  doc.text('Table of Contents', ML, y)
-
-  y += 3
-  doc.setDrawColor(GOLD); doc.setLineWidth(0.6)
-  doc.line(ML, y, ML + 40, y)
-
-  y += 14
 
   const sections = parseSections(data.content)
   const sectionNames = sections.length > 0
     ? sections.map(s => s.heading)
     : DEAL_SECTIONS
 
+  // Calculate total TOC height to centre vertically
+  // Title (18pt) + gold rule (3mm gap) + gap (10mm) + entries (11mm each)
+  const tocTitleH = 10
+  const tocGap = 12
+  const tocEntryH = 11
+  const tocTotalH = tocTitleH + tocGap + (sectionNames.length * tocEntryH)
+  const tocStartY = Math.max(22, (PH - tocTotalH) / 2)
+
+  y = tocStartY
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.setTextColor(TEXT_1)
+  doc.text('Table of Contents', CX, y, { align: 'center' })
+
+  y += 4
+  doc.setDrawColor(GOLD); doc.setLineWidth(0.6)
+  doc.line(CX - 20, y, CX + 20, y)
+
+  y += tocGap
+
+  // TOC content area -- centred block
+  const tocML = 40  // left margin for TOC entries (wider for centred look)
+  const tocMR = 40
+
   sectionNames.forEach((name, idx) => {
     // Roman numeral
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(GOLD)
-    doc.text(ROMAN[idx] || String(idx + 1), ML + 2, y)
+    doc.text(ROMAN[idx] || String(idx + 1), tocML, y)
 
     // Section name -- title case
     const titleCase = name.split(' ').map(w =>
       w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
     ).join(' ')
     doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5); doc.setTextColor(TEXT_1)
-    doc.text(titleCase, ML + 16, y)
+    doc.text(titleCase, tocML + 14, y)
 
     // Dotted leader line
     doc.setDrawColor(BORDER); doc.setLineWidth(0.15)
-    const textEnd = ML + 16 + doc.getTextWidth(titleCase) + 3
-    const lineEnd = PW - MR - 5
+    const textEnd = tocML + 14 + doc.getTextWidth(titleCase) + 3
+    const lineEnd = PW - tocMR
     if (textEnd < lineEnd) {
       doc.setLineDashPattern([0.5, 1.5], 0)
       doc.line(textEnd, y - 0.5, lineEnd, y - 0.5)
       doc.setLineDashPattern([], 0)
     }
 
-    y += 11
+    y += tocEntryH
   })
 
   footer()
