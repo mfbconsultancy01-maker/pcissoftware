@@ -116,11 +116,13 @@ function startBackgroundRefresh(): void {
   refreshTimer = setInterval(() => {
     console.log('[SCOUT Cache] Background refresh starting...')
     // Refresh all cached keys silently
-    for (const [key, entry] of cache.entries()) {
-      if (entry.data !== null && key in fetchers) {
+    const keys = Array.from(cache.keys())
+    keys.forEach(key => {
+      const entry = cache.get(key)
+      if (entry?.data !== null && key in fetchers) {
         silentRefresh(key, fetchers[key as keyof typeof fetchers])
       }
-    }
+    })
   }, REFRESH_INTERVAL_MS)
 }
 

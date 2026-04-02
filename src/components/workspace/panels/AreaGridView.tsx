@@ -158,7 +158,7 @@ export default function AreaGridView() {
           setAreas(mergedAreas)
         } else {
           // API failed or no data, fall back to static
-          console.warn('Failed to fetch real area metrics, using static data:', response)
+          console.warn('Failed to fetch real area metrics, using static data')
           setAreas(staticAreas)
         }
       } catch (err) {
