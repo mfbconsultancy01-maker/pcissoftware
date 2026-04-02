@@ -1,7 +1,8 @@
 'use client'
 
-import React, { useState, useMemo } from 'react'
-import { areas, type AreaProfile } from '@/lib/marketData'
+import React, { useState, useMemo, useEffect } from 'react'
+import { areas as staticAreas, type AreaProfile } from '@/lib/marketData'
+import { p1Api } from '@/lib/api'
 import { useWorkspaceNav } from '../useWorkspaceNav'
 
 // ============================================================================
@@ -10,6 +11,7 @@ import { useWorkspaceNav } from '../useWorkspaceNav'
 // Terminal-style grid showing all Dubai areas at a glance. Bloomberg-grade
 // density with demand, pricing, yield, liquidity, service charges, community
 // maturity, and sparklines. Click any area → opens full Area Profile panel.
+// Fetches real data from backend API, with fallback to static data.
 // ============================================================================
 
 function Sparkline({ data, color, width = 56, height = 16 }: {
@@ -50,6 +52,7 @@ function DemandBar({ score, trend }: { score: number; trend: string }) {
 }
 
 function formatPct(n: number): string {
+  if (n === 0 || !n) return '--'
   return `${n >= 0 ? '+' : ''}${n.toFixed(1)}%`
 }
 
@@ -64,12 +67,113 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: 'name', label: 'Name' },
 ]
 
+// ============================================================================
+// Transform backend API response to internal AreaProfile format
+// ============================================================================
+
+interface BackendAreaMetrics {
+  areaName: string
+  propertyCount: number
+  avgPrice: number
+  medianPrice: number
+  avgPricePerSqft: number
+  priceChange7d: number
+  priceChange30d: number
+  avgDaysOnMarket: number
+  inventoryCount: number
+  highOpportunityCount: number
+  demandScore: number
+  topPropertyTypes: Array<{ type: string; count: number }>
+  sources: Array<{ source: string; count: number }>
+}
+
+function mergeBackendWithStatic(backendData: BackendAreaMetrics[], staticAreas: AreaProfile[]): AreaProfile[] {
+  return backendData.map(backend => {
+    // Try to find matching static area by name
+    const staticMatch = staticAreas.find(
+      s => s.name.toUpperCase() === backend.areaName.toUpperCase() ||
+      s.shortName?.toUpperCase() === backend.areaName.toUpperCase()
+    )
+
+    // Generate reasonable defaults for missing fields
+    const priceHistory = staticMatch?.priceHistory || Array.from({ length: 30 }, () => backend.avgPricePerSqft + (Math.random() - 0.5) * 100)
+    const demandHistory = staticMatch?.demandHistory || Array.from({ length: 30 }, () => backend.demandScore + (Math.random() - 0.5) * 10)
+    const volumeHistory = staticMatch?.volumeHistory || Array.from({ length: 30 }, () => backend.propertyCount / 30 + (Math.random() - 0.5) * 50)
+
+    return {
+      id: staticMatch?.id || `area-${backend.areaName.toLowerCase().replace(/\s+/g, '-')}`,
+      name: backend.areaName,
+      shortName: staticMatch?.shortName || backend.areaName.split(' ')[0],
+      subAreas: staticMatch?.subAreas || [],
+      demandScore: backend.demandScore,
+      demandTrend: backend.priceChange30d > 0 ? 'rising' : backend.priceChange30d < 0 ? 'falling' : 'stable',
+      avgPriceSqft: backend.avgPricePerSqft,
+      priceChange30d: backend.priceChange30d,
+      priceChangeYoY: staticMatch?.priceChangeYoY || backend.priceChange30d * 0.8, // Estimate YoY from 30d
+      avgRentalYield: staticMatch?.avgRentalYield || 4.5, // Default yield
+      transactionCount90d: backend.propertyCount, // Use property count as proxy
+      totalInventory: backend.inventoryCount,
+      cashPercent: staticMatch?.cashPercent || 35,
+      topPropertyType: backend.topPropertyTypes?.[0]?.type || 'Apartment',
+      outlook: backend.demandScore >= 75 ? 'bullish' : backend.demandScore >= 55 ? 'neutral' : 'bearish',
+      priceHistory,
+      demandHistory,
+      volumeHistory,
+      liquidity: staticMatch?.liquidity || {
+        liquidityScore: Math.round((backend.inventoryCount / Math.max(backend.propertyCount, 1)) * 100),
+        absorptionRate: backend.propertyCount > 0 ? backend.inventoryCount / backend.propertyCount : 0,
+        avgDaysToSell: backend.avgDaysOnMarket || undefined,
+        avgDaysOnMarket: backend.avgDaysOnMarket || 0,
+      },
+      community: staticMatch?.community || {
+        maturityLevel: backend.propertyCount > 500 ? 'Established' : backend.propertyCount > 100 ? 'Maturing' : 'Emerging',
+      },
+      regulatory: staticMatch?.regulatory || { isFreehold: true },
+      rental: staticMatch?.rental || { avgRent: 60000, occupancyRate: 85, rentChange: 2.5 },
+      serviceCharges: staticMatch?.serviceCharges || { avgPerSqft: 25 },
+      supplyPipeline: staticMatch?.supplyPipeline || [],
+    } as AreaProfile
+  })
+}
+
 export default function AreaGridView() {
   const nav = useWorkspaceNav()
   const [sortBy, setSortBy] = useState<SortKey>('demand')
   const [search, setSearch] = useState('')
+  const [areas, setAreas] = useState<AreaProfile[]>(staticAreas)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  // Helper to safely extract liquidity score (mock has liquidityScore, real has absorptionRate)
+  // Fetch real data on mount
+  useEffect(() => {
+    const fetchAreas = async () => {
+      try {
+        setLoading(true)
+        setError(null)
+        const response = await p1Api.getAreaMetrics()
+
+        if (response?.success && response?.data && Array.isArray(response.data)) {
+          // Merge backend data with static data for enrichment
+          const mergedAreas = mergeBackendWithStatic(response.data, staticAreas)
+          setAreas(mergedAreas)
+        } else {
+          // API failed or no data, fall back to static
+          console.warn('Failed to fetch real area metrics, using static data:', response)
+          setAreas(staticAreas)
+        }
+      } catch (err) {
+        console.error('Error fetching area metrics:', err)
+        setError('Failed to load real-time area data')
+        setAreas(staticAreas) // Fallback to static
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchAreas()
+  }, [])
+
+  // Helper to safely extract liquidity score
   const getLiquidityScore = (a: AreaProfile): number => {
     const liq = a.liquidity as any
     return liq?.liquidityScore ?? Math.round((liq?.absorptionRate ?? 0) * 100)
@@ -93,7 +197,7 @@ export default function AreaGridView() {
       case 'liquidity': return result.sort((a, b) => getLiquidityScore(b) - getLiquidityScore(a))
       case 'name': return result.sort((a, b) => a.name.localeCompare(b.name))
     }
-  }, [sortBy, search])
+  }, [sortBy, search, areas])
 
   const totalInventory = areas.reduce((s, a) => s + a.totalInventory, 0)
   const totalTransactions = areas.reduce((s, a) => s + a.transactionCount90d, 0)
@@ -111,7 +215,7 @@ export default function AreaGridView() {
             Area Intelligence
           </h2>
           <p className="text-[10px] text-pcis-text-muted tracking-wider uppercase mt-0.5">
-            Dubai Real Estate Market · {areas.length} Areas Monitored
+            Dubai Real Estate Market · {areas.length} Areas Monitored {loading && '(Loading...)'}
           </p>
         </div>
         <div className="flex items-center gap-4">
@@ -156,19 +260,41 @@ export default function AreaGridView() {
         </div>
       </div>
 
-      {/* ── Grid ── */}
-      <div className="flex-1 overflow-y-auto min-h-0">
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-2 pb-2">
-          {sorted.map((area) => (
-            <AreaCard key={area.id} area={area} onClick={() => nav.openArea(area.id)} />
-          ))}
-        </div>
-        {sorted.length === 0 && (
-          <div className="text-center py-12">
-            <span className="text-pcis-text-muted/40 text-sm">No areas match your search</span>
+      {/* ── Loading State ── */}
+      {loading && (
+        <div className="flex-1 flex items-center justify-center min-h-0">
+          <div className="text-center">
+            <div className="inline-block w-8 h-8 border-2 border-pcis-gold/20 border-t-pcis-gold rounded-full animate-spin mb-2"></div>
+            <span className="text-pcis-text-muted text-sm">Loading real-time area metrics...</span>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* ── Error State ── */}
+      {error && !loading && (
+        <div className="flex-1 flex items-center justify-center min-h-0">
+          <div className="text-center">
+            <span className="text-red-400/60 text-sm mb-2 block">{error}</span>
+            <span className="text-pcis-text-muted text-xs">Using cached static data</span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Grid ── */}
+      {!loading && (
+        <div className="flex-1 overflow-y-auto min-h-0">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-2 pb-2">
+            {sorted.map((area) => (
+              <AreaCard key={area.id} area={area} onClick={() => nav.openArea(area.id)} />
+            ))}
+          </div>
+          {sorted.length === 0 && (
+            <div className="text-center py-12">
+              <span className="text-pcis-text-muted/40 text-sm">No areas match your search</span>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -189,6 +315,9 @@ function AreaCard({ area, onClick }: { area: AreaProfile; onClick: () => void })
   const comm = area.community as any
   const maturityLevel = comm?.maturityLevel || (area.transactionCount90d > 500 ? 'Established' : area.transactionCount90d > 100 ? 'Maturing' : 'Emerging')
   const matColor = maturityLevel === 'Established' ? '#22c55e' : maturityLevel === 'Maturing' ? '#3b82f6' : '#f59e0b'
+
+  // Format days on market: show "New" if 0, otherwise show formatted days
+  const daysOnMarketDisplay = (area.liquidity as any)?.avgDaysOnMarket === 0 ? 'New' : `${(area.liquidity as any)?.avgDaysOnMarket || 0}d`
 
   return (
     <button onClick={onClick}
@@ -243,7 +372,7 @@ function AreaCard({ area, onClick }: { area: AreaProfile; onClick: () => void })
         <div>
           <span className="text-[7px] text-pcis-text-muted/50 uppercase tracking-wider block">Liquidity</span>
           <span className="text-[11px] font-bold tabular-nums" style={{ color: liqColor }}>{liqScore}</span>
-          <span className="text-[8px] text-pcis-text-muted tabular-nums block">{liq?.avgDaysToSell || liq?.avgDaysOnMarket || '—'}d avg</span>
+          <span className="text-[8px] text-pcis-text-muted tabular-nums block">{daysOnMarketDisplay} avg</span>
         </div>
         <div>
           <span className="text-[7px] text-pcis-text-muted/50 uppercase tracking-wider block">Svc Chg</span>

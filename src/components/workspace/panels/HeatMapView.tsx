@@ -1,11 +1,30 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { areaHeatMetrics, type AreaHeatMetric } from '@/lib/signalsData'
 import { useWorkspaceNav, AreaLink } from '../useWorkspaceNav'
+import { p1Api } from '@/lib/api'
 
 type SortKey = 'overall' | 'price' | 'volume' | 'demand' | 'supply' | 'yield' | 'sentiment'
 type ViewMode = 'grid' | 'table'
+
+interface AreaMetricsResponse {
+  areaName: string
+  propertyCount: number
+  avgPrice: number
+  avgPricePerSqft: number
+  priceChange7d: number
+  priceChange30d: number
+  avgDaysOnMarket: number
+  inventoryCount: number
+  demandScore: number
+  topPropertyTypes: Array<{ type: string; count: number }>
+  sources: Array<{ source: string; count: number }>
+}
+
+interface ComputedAreaHeat extends AreaHeatMetric {
+  rawData?: AreaMetricsResponse
+}
 
 function getSortValue(metric: AreaHeatMetric, key: SortKey): number {
   switch (key) {
@@ -20,29 +39,131 @@ function getSortValue(metric: AreaHeatMetric, key: SortKey): number {
   }
 }
 
+function normalizeScore(value: number, min: number, max: number, reverse = false): number {
+  if (value === 0 || !isFinite(value)) return 0
+  const normalized = ((value - min) / (max - min)) * 100
+  const clamped = Math.max(0, Math.min(100, normalized))
+  return reverse ? 100 - clamped : clamped
+}
+
+function computeHeatFromBackendData(data: AreaMetricsResponse, staticMetric: AreaHeatMetric): ComputedAreaHeat {
+  // Price heat: based on avgPricePerSqft (higher price = more heat)
+  // Assuming typical range $500-$5000 per sqft
+  const priceHeat = data.avgPricePerSqft > 0
+    ? normalizeScore(data.avgPricePerSqft, 500, 5000)
+    : 0
+
+  // Volume heat: based on propertyCount (more properties = more heat)
+  // Assuming typical range 0-10000 properties
+  const volumeHeat = data.propertyCount > 0
+    ? normalizeScore(data.propertyCount, 0, 10000)
+    : 0
+
+  // Demand heat: based on demandScore (direct, already 0-100)
+  const demandHeat = data.demandScore >= 0 ? data.demandScore : 0
+
+  // Supply heat: based on inventoryCount (more inventory = cooler, less inventory = hotter)
+  // Assuming typical range 0-5000, reverse scaling
+  const supplyHeat = data.inventoryCount >= 0
+    ? normalizeScore(data.inventoryCount, 0, 5000, true)
+    : 0
+
+  // Yield heat: use static data as fallback, or compute from available metrics
+  // For now, we'll use a combination of price momentum and demand
+  const yieldHeat = data.priceChange30d !== 0 && data.priceChange30d !== undefined
+    ? Math.max(0, Math.min(100, 50 + (data.priceChange30d * 2)))
+    : staticMetric.yieldHeat
+
+  // Sentiment heat: use static data as fallback
+  const sentimentHeat = staticMetric.sentimentHeat
+
+  // Overall heat: weighted composite
+  const overallHeat = Math.round(
+    priceHeat * 0.25 +
+    volumeHeat * 0.20 +
+    demandHeat * 0.25 +
+    supplyHeat * 0.15 +
+    yieldHeat * 0.10 +
+    sentimentHeat * 0.05
+  )
+
+  return {
+    ...staticMetric,
+    priceHeat: Math.round(priceHeat),
+    volumeHeat: Math.round(volumeHeat),
+    demandHeat: Math.round(demandHeat),
+    supplyHeat: Math.round(supplyHeat),
+    yieldHeat: Math.round(yieldHeat),
+    sentimentHeat: Math.round(sentimentHeat),
+    overallHeat,
+    rawData: data,
+  }
+}
+
 export default function HeatMapView() {
   const nav = useWorkspaceNav()
   const [sortBy, setSortBy] = useState<SortKey>('overall')
   const [viewMode, setViewMode] = useState<ViewMode>('grid')
+  const [areas, setAreas] = useState<ComputedAreaHeat[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  // Fetch data from backend API on mount
+  useEffect(() => {
+    const fetchAreaMetrics = async () => {
+      try {
+        setLoading(true)
+        setError(null)
+
+        const response = await p1Api.getAreaMetrics()
+
+        if (response?.data && Array.isArray(response.data)) {
+          // Compute heat scores from backend data and merge with static data
+          const computedAreas = response.data.map((backendData) => {
+            // Find corresponding static metric for ID and other metadata
+            const staticMetric = areaHeatMetrics.find(
+              (m) => m.area.toLowerCase() === backendData.areaName.toLowerCase()
+            ) || areaHeatMetrics[0]
+
+            return computeHeatFromBackendData(backendData, staticMetric)
+          })
+
+          setAreas(computedAreas)
+        } else {
+          // Fallback to static data if API returns invalid format
+          throw new Error('Invalid API response format')
+        }
+      } catch (err) {
+        console.error('Failed to fetch area metrics:', err)
+        setError(err instanceof Error ? err.message : 'Failed to fetch area metrics')
+        // Fallback to static data
+        setAreas(areaHeatMetrics as ComputedAreaHeat[])
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchAreaMetrics()
+  }, [])
 
   const sortedAreas = useMemo(() => {
-    const sorted = [...areaHeatMetrics].sort((a, b) => {
+    const sorted = [...areas].sort((a, b) => {
       const aVal = getSortValue(a, sortBy)
       const bVal = getSortValue(b, sortBy)
       return typeof bVal === 'number' && typeof aVal === 'number' ? bVal - aVal : 0
     })
     return sorted
-  }, [sortBy])
+  }, [areas, sortBy])
 
   const topMovers = useMemo(() => {
-    const heating = [...areaHeatMetrics]
+    const heating = [...areas]
       .sort((a, b) => (b.heatChange30d ?? 0) - (a.heatChange30d ?? 0))
       .slice(0, 3)
-    const cooling = [...areaHeatMetrics]
+    const cooling = [...areas]
       .sort((a, b) => (a.heatChange30d ?? 0) - (b.heatChange30d ?? 0))
       .slice(0, 3)
     return { heating, cooling }
-  }, [])
+  }, [areas])
 
   return (
     <div className="h-full flex flex-col bg-gradient-to-b from-white/[0.01] to-white/[0.005] p-6 gap-6">
@@ -114,7 +235,32 @@ export default function HeatMapView() {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto min-h-0">
-        {viewMode === 'grid' ? (
+        {loading ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <div className="inline-block px-4 py-2 rounded-lg bg-white/[0.02] border border-white/[0.04] mb-3">
+                <p className="text-sm text-white/70">Loading area metrics...</p>
+              </div>
+              <div className="flex gap-1 justify-center">
+                <div className="w-2 h-2 rounded-full bg-pcis-gold/60 animate-bounce" style={{ animationDelay: '0s' }} />
+                <div className="w-2 h-2 rounded-full bg-pcis-gold/60 animate-bounce" style={{ animationDelay: '0.2s' }} />
+                <div className="w-2 h-2 rounded-full bg-pcis-gold/60 animate-bounce" style={{ animationDelay: '0.4s' }} />
+              </div>
+            </div>
+          </div>
+        ) : error ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <p className="text-sm text-red-400 mb-2">Failed to load metrics</p>
+              <p className="text-xs text-white/50">{error}</p>
+              <p className="text-xs text-white/40 mt-2">Showing cached data</p>
+            </div>
+          </div>
+        ) : sortedAreas.length === 0 ? (
+          <div className="flex items-center justify-center h-full">
+            <p className="text-sm text-white/50">No area data available</p>
+          </div>
+        ) : viewMode === 'grid' ? (
           <HeatGridView areas={sortedAreas} nav={nav} />
         ) : (
           <HeatTableView areas={sortedAreas} sortBy={sortBy} setSortBy={setSortBy} />
@@ -189,7 +335,7 @@ function HeatGridView({
               className="text-2xl font-bold tabular-nums"
               style={{ color: getHeatColor(area.overallHeat) }}
             >
-              {area.overallHeat}
+              {area.overallHeat === 0 ? '--' : area.overallHeat}
             </p>
           </div>
 
@@ -274,43 +420,43 @@ function HeatTableView({
                   backgroundColor: getHeatColorBg(getHeatColor(area.overallHeat)),
                 }}
               >
-                {area.overallHeat}
+                {area.overallHeat === 0 ? '--' : area.overallHeat}
               </td>
               <td
                 className="px-3 py-3 text-center tabular-nums"
                 style={{ color: getHeatColor(area.priceHeat) }}
               >
-                {area.priceHeat}
+                {area.priceHeat === 0 ? '--' : area.priceHeat}
               </td>
               <td
                 className="px-3 py-3 text-center tabular-nums"
                 style={{ color: getHeatColor(area.volumeHeat) }}
               >
-                {area.volumeHeat}
+                {area.volumeHeat === 0 ? '--' : area.volumeHeat}
               </td>
               <td
                 className="px-3 py-3 text-center tabular-nums"
                 style={{ color: getHeatColor(area.demandHeat) }}
               >
-                {area.demandHeat}
+                {area.demandHeat === 0 ? '--' : area.demandHeat}
               </td>
               <td
                 className="px-3 py-3 text-center tabular-nums"
                 style={{ color: getHeatColor(area.supplyHeat) }}
               >
-                {area.supplyHeat}
+                {area.supplyHeat === 0 ? '--' : area.supplyHeat}
               </td>
               <td
                 className="px-3 py-3 text-center tabular-nums"
                 style={{ color: getHeatColor(area.yieldHeat) }}
               >
-                {area.yieldHeat}
+                {area.yieldHeat === 0 ? '--' : area.yieldHeat}
               </td>
               <td
                 className="px-3 py-3 text-center tabular-nums"
                 style={{ color: getHeatColor(area.sentimentHeat) }}
               >
-                {area.sentimentHeat}
+                {area.sentimentHeat === 0 ? '--' : area.sentimentHeat}
               </td>
               <td className="text-right px-4 py-3 text-[8px] tabular-nums">
                 <span className={area.heatChange30d > 0 ? 'text-green-400' : 'text-red-400'}>
@@ -326,11 +472,14 @@ function HeatTableView({
 }
 
 function HeatDot({ score, label }: { score: number; label: string }) {
+  const displayScore = score === 0 ? '--' : score
+  const title = score === 0 ? `${label}: unavailable` : `${label}: ${score}`
+
   return (
     <div
       className="w-5 h-5 rounded-full flex items-center justify-center"
-      style={{ backgroundColor: getHeatColor(score, true) }}
-      title={`${label}: ${score}`}
+      style={{ backgroundColor: getHeatColor(score === 0 ? 0 : score, true) }}
+      title={title}
     >
       <span className="text-[7px] text-white/60 font-medium">{label}</span>
     </div>

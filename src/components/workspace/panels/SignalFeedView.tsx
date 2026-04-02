@@ -1,11 +1,118 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
-import { marketSignals, signalsSummary, type MarketSignal } from '@/lib/signalsData'
+import { p1Api } from '@/lib/api'
 import { AreaLink } from '../useWorkspaceNav'
+
+// Type definitions to match backend and existing structure
+export type MarketSignal = {
+  id: string
+  type: string
+  area: string
+  areaId: string
+  severity: 'critical' | 'high' | 'medium' | 'low'
+  title: string
+  description: string
+  headline: string
+  detail: string
+  metric: string
+  change: number
+  timeframe: string
+  deviationPct: number
+  confidence: number
+  actionableInsight: string
+  tags: string[]
+  detectedDate: string
+  estimatedUpside?: number
+  timeToAct?: string
+}
 
 type SeverityLevel = 'all' | 'critical' | 'high' | 'medium' | 'low'
 type SortOption = 'newest' | 'severity' | 'confidence' | 'expiring'
+
+// Mock data fallback for when API fails
+const createMockSignals = (): MarketSignal[] => [
+  {
+    id: 'mock-1',
+    type: 'volume_spike',
+    area: 'BUSINESS BAY',
+    areaId: 'bb-1',
+    severity: 'critical',
+    title: 'Exceptional Trading Activity Detected',
+    headline: 'Volume Spike in Business Bay',
+    detail: 'Transaction volume surge detected',
+    metric: 'volume',
+    change: 45.2,
+    timeframe: '7d',
+    description: 'An unusual surge in transaction volume has been registered in the past 7 days.',
+    deviationPct: -25.5,
+    confidence: 92,
+    actionableInsight: 'Review client pipelines in this area for potential repricing or competitive activity.',
+    tags: ['trading', 'momentum', 'attention'],
+    detectedDate: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+    estimatedUpside: 2500000,
+    timeToAct: '3 days',
+  },
+]
+
+// Map backend anomaly types to signal types
+const mapAnomalyTypeToSignalType = (anomalyType: string): string => {
+  const typeMap: Record<string, string> = {
+    'volume_spike': 'volume-spike',
+    'developer_activity': 'developer-activity',
+    'price_drop': 'price-drop',
+    'price_surge': 'price-surge',
+    'demand_shift': 'demand-shift',
+  }
+  return typeMap[anomalyType] || anomalyType
+}
+
+// Convert backend anomaly to MarketSignal
+const convertAnomalyToSignal = (anomaly: any, index: number): MarketSignal => {
+  const signalType = mapAnomalyTypeToSignalType(anomaly.type)
+  const changeValue = Math.abs(anomaly.change)
+  const isNegative = anomaly.type === 'price_drop'
+
+  // Map severity string
+  const severityMap: Record<string, 'critical' | 'high' | 'medium' | 'low'> = {
+    'critical': 'critical',
+    'high': 'high',
+    'medium': 'medium',
+    'low': 'low',
+  }
+  const mappedSeverity = severityMap[anomaly.severity] || 'medium'
+
+  // Generate confidence based on severity
+  const confidenceMap = {
+    'critical': 92,
+    'high': 82,
+    'medium': 70,
+    'low': 55,
+  }
+  const confidence = confidenceMap[mappedSeverity]
+
+  return {
+    id: `signal-${index}-${anomaly.area}`,
+    type: signalType,
+    area: anomaly.area,
+    areaId: anomaly.area.toLowerCase().replace(/\s+/g, '-'),
+    severity: mappedSeverity,
+    title: anomaly.headline || `${signalType} in ${anomaly.area}`,
+    headline: anomaly.headline,
+    detail: anomaly.detail,
+    metric: anomaly.metric,
+    change: anomaly.change,
+    timeframe: anomaly.timeframe,
+    description: anomaly.detail || `Market anomaly detected: ${anomaly.headline}`,
+    deviationPct: isNegative ? -changeValue : changeValue,
+    confidence,
+    actionableInsight: `Monitor ${anomaly.area} for ${signalType} signals. ${anomaly.detail}`,
+    tags: [signalType, anomaly.area.toLowerCase(), anomaly.timeframe],
+    detectedDate: new Date().toISOString(),
+    estimatedUpside: changeValue > 20 ? Math.round(changeValue * 100000) : 1500000,
+    timeToAct: anomaly.timeframe === '7d' ? '3-5 days' : anomaly.timeframe === '24h' ? '12-24 hours' : '1-2 weeks',
+  }
+}
 
 const severityConfig: Record<Exclude<SeverityLevel, 'all'>, { color: string; dotColor: string; bgColor: string }> = {
   critical: { color: 'text-rose-400', dotColor: '\u25CF', bgColor: 'bg-rose-400/10' },
@@ -251,12 +358,46 @@ function SignalDetailOverlay({
 
 // ── Main Component ──────────────────────────────────────────────────────
 export default function SignalFeedView() {
+  const [marketSignals, setMarketSignals] = useState<MarketSignal[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [severityFilter, setSeverityFilter] = useState<SeverityLevel>('all')
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [areaFilter, setAreaFilter] = useState<string>('all')
   const [searchTerm, setSearchTerm] = useState<string>('')
   const [sortBy, setSortBy] = useState<SortOption>('newest')
   const [expandedSignal, setExpandedSignal] = useState<MarketSignal | null>(null)
+
+  // Fetch data from backend API on mount
+  useEffect(() => {
+    const fetchAnomalies = async () => {
+      try {
+        setLoading(true)
+        setError(null)
+        const response = await p1Api.getSCOUTAnomalies()
+
+        if (response?.data?.anomalies && Array.isArray(response.data.anomalies)) {
+          const signals = response.data.anomalies.map((anomaly, index) =>
+            convertAnomalyToSignal(anomaly, index)
+          )
+          setMarketSignals(signals)
+        } else {
+          // Fallback to mock data if response structure is unexpected
+          console.warn('Unexpected API response structure, using mock data')
+          setMarketSignals(createMockSignals())
+        }
+      } catch (err) {
+        console.error('Failed to fetch anomalies:', err)
+        setError('Failed to load market signals. Showing sample data.')
+        // Fallback to mock data on error
+        setMarketSignals(createMockSignals())
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchAnomalies()
+  }, [])
 
   // ESC to close overlay
   useEffect(() => {
@@ -271,13 +412,13 @@ export default function SignalFeedView() {
     const types = new Set<string>()
     marketSignals.forEach((s: MarketSignal) => types.add(s.type))
     return Array.from(types).sort()
-  }, [])
+  }, [marketSignals])
 
   const areas = useMemo(() => {
     const areasSet = new Set<string>()
     marketSignals.forEach((s: MarketSignal) => areasSet.add(s.area))
     return Array.from(areasSet).sort()
-  }, [])
+  }, [marketSignals])
 
   const filteredSignals = useMemo(() => {
     let filtered = marketSignals.filter((s: MarketSignal) => {
@@ -327,12 +468,12 @@ export default function SignalFeedView() {
     })
 
     return filtered
-  }, [severityFilter, typeFilter, areaFilter, searchTerm, sortBy])
+  }, [severityFilter, typeFilter, areaFilter, searchTerm, sortBy, marketSignals])
 
   const criticalCount = marketSignals.filter((s: MarketSignal) => getSeverityLevel(s) === 'critical').length
   const highCount = marketSignals.filter((s: MarketSignal) => getSeverityLevel(s) === 'high').length
   const mediumCount = marketSignals.filter((s: MarketSignal) => getSeverityLevel(s) === 'medium').length
-  const avgConfidence = Math.round(marketSignals.reduce((sum: number, s: MarketSignal) => sum + s.confidence, 0) / marketSignals.length)
+  const avgConfidence = marketSignals.length > 0 ? Math.round(marketSignals.reduce((sum: number, s: MarketSignal) => sum + s.confidence, 0) / marketSignals.length) : 0
   const totalUpside = marketSignals.reduce((sum: number, s: MarketSignal) => sum + (s.estimatedUpside || 0), 0)
 
   return (
@@ -350,8 +491,9 @@ export default function SignalFeedView() {
               Market Signals
             </h1>
             <p className="text-[11px] text-white/50 mt-1 tracking-wide">
-              Real-Time Intelligence Feed -- {marketSignals.length} Active Signals
+              Real-Time Intelligence Feed -- {loading ? 'Loading...' : marketSignals.length} Active Signals
             </p>
+            {error && <p className="text-[9px] text-orange-400 mt-1">{error}</p>}
             <p className="text-[9px] text-white/30 mt-1">
               Click any signal for full AI analysis
             </p>
@@ -413,7 +555,18 @@ export default function SignalFeedView() {
 
       {/* Signals List */}
       <div className="flex-1 overflow-y-auto min-h-0 p-6 space-y-3">
-        {filteredSignals.length === 0 ? (
+        {loading ? (
+          <div className="h-full flex items-center justify-center text-center">
+            <div>
+              <div className="text-white/50 text-sm mb-2">Fetching market signals...</div>
+              <div className="flex justify-center gap-1">
+                <div className="w-1 h-1 bg-pcis-gold rounded-full animate-pulse" />
+                <div className="w-1 h-1 bg-pcis-gold rounded-full animate-pulse delay-100" />
+                <div className="w-1 h-1 bg-pcis-gold rounded-full animate-pulse delay-200" />
+              </div>
+            </div>
+          </div>
+        ) : filteredSignals.length === 0 ? (
           <div className="h-full flex items-center justify-center text-center">
             <div>
               <div className="text-white/50 text-sm mb-1">No signals match your filters</div>
