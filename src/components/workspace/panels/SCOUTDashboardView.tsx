@@ -267,9 +267,13 @@ function useSCOUTLiveData(): SCOUTLiveData {
 
   useEffect(() => {
     let cancelled = false
+    let retryCount = 0
+
     async function fetchAll() {
       setIsLoading(true)
       try {
+        console.log('[SCOUT] Fetching live data from backend (attempt ' + (retryCount + 1) + ')...')
+
         const [statusRes, areasRes, anomalyRes, macroRes] = await Promise.allSettled([
           p1Api.getSCOUTAgentStatus(),
           p1Api.getAreaMetrics(),
@@ -279,32 +283,64 @@ function useSCOUTLiveData(): SCOUTLiveData {
 
         if (cancelled) return
 
+        let gotData = false
+
         if (statusRes.status === 'fulfilled' && statusRes.value?.data) {
           setStatus(statusRes.value.data)
-          setIsLive(true)
+          gotData = true
+          console.log('[SCOUT] Status loaded:', statusRes.value.data.totalProperties, 'properties')
+        } else {
+          console.warn('[SCOUT] Status failed:', statusRes.status === 'rejected' ? statusRes.reason : 'null response')
         }
+
         if (areasRes.status === 'fulfilled') {
           const raw = areasRes.value?.data || areasRes.value
           if (Array.isArray(raw) && raw.length > 0) {
             setAreaMetrics(raw)
+            gotData = true
+            console.log('[SCOUT] Areas loaded:', raw.length, 'areas')
           }
+        } else {
+          console.warn('[SCOUT] Areas failed:', areasRes.status === 'rejected' ? areasRes.reason : 'null')
         }
+
         if (anomalyRes.status === 'fulfilled' && anomalyRes.value?.data?.anomalies) {
           setAnomalies(anomalyRes.value.data.anomalies)
+          gotData = true
+          console.log('[SCOUT] Anomalies loaded:', anomalyRes.value.data.anomalies.length)
         }
+
         if (macroRes.status === 'fulfilled' && macroRes.value?.data) {
           setMacroContext(macroRes.value.data)
+          console.log('[SCOUT] Macro context loaded, daily:', macroRes.value.data.hasDailyContext)
+        }
+
+        if (gotData) {
+          setIsLive(true)
+        } else if (retryCount < 2 && !cancelled) {
+          // Retry after delay -- Clerk auth might not be ready yet
+          retryCount++
+          console.log('[SCOUT] No data loaded, retrying in 2s...')
+          setTimeout(() => { if (!cancelled) fetchAll() }, 2000)
+          return
         }
 
         setLastRefresh(new Date().toISOString())
       } catch (err) {
-        console.warn('[SCOUT Dashboard] Failed to fetch live data, using fallbacks')
+        console.warn('[SCOUT Dashboard] Failed to fetch live data, using fallbacks:', err)
+        if (retryCount < 2 && !cancelled) {
+          retryCount++
+          setTimeout(() => { if (!cancelled) fetchAll() }, 2000)
+          return
+        }
       } finally {
         if (!cancelled) setIsLoading(false)
       }
     }
-    fetchAll()
-    return () => { cancelled = true }
+
+    // Small delay to let Clerk auth session initialize
+    const timer = setTimeout(fetchAll, 500)
+    return () => { cancelled = true; clearTimeout(timer) }
   }, [])
 
   return { status, areaMetrics, anomalies, macroContext, isLoading, isLive, lastRefresh }
