@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { p1Api } from '@/lib/api'
+import { getAreaMetricsCached, getSCOUTStatusCached, getSCOUTAnomaliesCached, getSCOUTMacroContextCached } from '@/lib/scoutDataCache'
 import {
   areas,
   getTopAreas,
@@ -274,45 +275,37 @@ function useSCOUTLiveData(): SCOUTLiveData {
       try {
         console.log('[SCOUT] Fetching live data from backend (attempt ' + (retryCount + 1) + ')...')
 
-        const [statusRes, areasRes, anomalyRes, macroRes] = await Promise.allSettled([
-          p1Api.getSCOUTAgentStatus(),
-          p1Api.getAreaMetrics(),
-          p1Api.getSCOUTAnomalies(),
-          p1Api.getSCOUTMacroContext(),
+        // Use shared cache — prevents duplicate API calls across panels
+        const [statusData, areasData, anomaliesData, macroData] = await Promise.allSettled([
+          getSCOUTStatusCached(),
+          getAreaMetricsCached(),
+          getSCOUTAnomaliesCached(),
+          getSCOUTMacroContextCached(),
         ])
 
         if (cancelled) return
 
         let gotData = false
 
-        if (statusRes.status === 'fulfilled' && statusRes.value?.data) {
-          setStatus(statusRes.value.data)
+        if (statusData.status === 'fulfilled' && statusData.value) {
+          setStatus(statusData.value)
           gotData = true
-          console.log('[SCOUT] Status loaded:', statusRes.value.data.totalProperties, 'properties')
-        } else {
-          console.warn('[SCOUT] Status failed:', statusRes.status === 'rejected' ? statusRes.reason : 'null response')
+          console.log('[SCOUT] Status loaded:', statusData.value.totalProperties, 'properties')
         }
 
-        if (areasRes.status === 'fulfilled') {
-          const raw = areasRes.value?.data || areasRes.value
-          if (Array.isArray(raw) && raw.length > 0) {
-            setAreaMetrics(raw)
-            gotData = true
-            console.log('[SCOUT] Areas loaded:', raw.length, 'areas')
-          }
-        } else {
-          console.warn('[SCOUT] Areas failed:', areasRes.status === 'rejected' ? areasRes.reason : 'null')
-        }
-
-        if (anomalyRes.status === 'fulfilled' && anomalyRes.value?.data?.anomalies) {
-          setAnomalies(anomalyRes.value.data.anomalies)
+        if (areasData.status === 'fulfilled' && Array.isArray(areasData.value) && areasData.value.length > 0) {
+          setAreaMetrics(areasData.value)
           gotData = true
-          console.log('[SCOUT] Anomalies loaded:', anomalyRes.value.data.anomalies.length)
+          console.log('[SCOUT] Areas loaded:', areasData.value.length, 'areas (cached)')
         }
 
-        if (macroRes.status === 'fulfilled' && macroRes.value?.data) {
-          setMacroContext(macroRes.value.data)
-          console.log('[SCOUT] Macro context loaded, daily:', macroRes.value.data.hasDailyContext)
+        if (anomaliesData.status === 'fulfilled' && Array.isArray(anomaliesData.value)) {
+          setAnomalies(anomaliesData.value)
+          gotData = true
+        }
+
+        if (macroData.status === 'fulfilled' && macroData.value) {
+          setMacroContext(macroData.value)
         }
 
         if (gotData) {

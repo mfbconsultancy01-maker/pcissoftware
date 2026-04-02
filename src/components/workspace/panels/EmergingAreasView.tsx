@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { p1Api } from '@/lib/api'
+import { getAreaMetricsCached } from '@/lib/scoutDataCache'
 import { emergingAreaSignals, type EmergingAreaSignal } from '@/lib/signalsData'
 import { useWorkspaceNav } from '../useWorkspaceNav'
 
@@ -541,16 +541,13 @@ export default function EmergingAreasView(): JSX.Element {
         setLoading(true)
         setError(null)
 
-        // Fetch real area metrics from API
-        const response = await p1Api.getAreaMetrics()
+        // Fetch real area metrics from shared cache
+        const data = await getAreaMetricsCached()
 
-        if (!response || !response.data || !Array.isArray(response.data)) {
-          throw new Error('Invalid response format from API')
-        }
-
-        if (response.data.length === 0) {
+        if (!Array.isArray(data) || data.length === 0) {
           throw new Error('No area metrics data available')
         }
+        const response = { data }
 
         // Transform API data to our format
         const transformedAreas = response.data

@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { areaHeatMetrics, type AreaHeatMetric } from '@/lib/signalsData'
 import { useWorkspaceNav, AreaLink } from '../useWorkspaceNav'
-import { p1Api } from '@/lib/api'
+import { getAreaMetricsCached } from '@/lib/scoutDataCache'
 
 type SortKey = 'overall' | 'price' | 'volume' | 'demand' | 'supply' | 'yield' | 'sentiment'
 type ViewMode = 'grid' | 'table'
@@ -115,11 +115,11 @@ export default function HeatMapView() {
         setLoading(true)
         setError(null)
 
-        const response = await p1Api.getAreaMetrics()
+        const data = await getAreaMetricsCached()
 
-        if (response?.data && Array.isArray(response.data)) {
+        if (Array.isArray(data) && data.length > 0) {
           // Compute heat scores from backend data and merge with static data
-          const computedAreas = response.data.map((backendData: any) => {
+          const computedAreas = data.map((backendData: any) => {
             // Find corresponding static metric for ID and other metadata
             const staticMetric = areaHeatMetrics.find(
               (m) => m.area.toLowerCase() === backendData.areaName.toLowerCase()

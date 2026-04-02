@@ -2,6 +2,7 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
 import { p1Api } from '@/lib/api';
+import { getAreaMetricsCached } from '@/lib/scoutDataCache';
 import { useWorkspaceNav } from '../useWorkspaceNav';
 
 // Dynamically determine month labels based on actual data length
@@ -381,10 +382,10 @@ export default function PriceTrendsView() {
       try {
         setIsLoading(true);
         setError(null);
-        const response = await p1Api.getAreaMetrics();
+        const data = await getAreaMetricsCached();
 
-        if (response && response.data) {
-          const areasData = response.data.map((metric: AreaMetric) => ({
+        if (Array.isArray(data) && data.length > 0) {
+          const areasData = data.map((metric: AreaMetric) => ({
             areaName: metric.areaName,
             metric,
           }));

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
-import { p1Api } from '@/lib/api'
+import { getSCOUTAnomaliesCached } from '@/lib/scoutDataCache'
 import { AreaLink } from '../useWorkspaceNav'
 
 // Type definitions to match backend and existing structure
@@ -374,10 +374,10 @@ export default function SignalFeedView() {
       try {
         setLoading(true)
         setError(null)
-        const response = await p1Api.getSCOUTAnomalies()
+        const anomalies = await getSCOUTAnomaliesCached()
 
-        if (response?.data?.anomalies && Array.isArray(response.data.anomalies)) {
-          const signals = response.data.anomalies.map((anomaly: any, index: number) =>
+        if (Array.isArray(anomalies) && anomalies.length > 0) {
+          const signals = anomalies.map((anomaly: any, index: number) =>
             convertAnomalyToSignal(anomaly, index)
           )
           setMarketSignals(signals)

@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react'
 import { areas as staticAreas, type AreaProfile } from '@/lib/marketData'
-import { p1Api } from '@/lib/api'
+import { getAreaMetricsCached } from '@/lib/scoutDataCache'
 import { useWorkspaceNav } from '../useWorkspaceNav'
 
 // ============================================================================
@@ -150,11 +150,11 @@ export default function AreaGridView() {
       try {
         setLoading(true)
         setError(null)
-        const response = await p1Api.getAreaMetrics()
+        const data = await getAreaMetricsCached()
 
-        if (response?.success && response?.data && Array.isArray(response.data)) {
+        if (Array.isArray(data) && data.length > 0) {
           // Merge backend data with static data for enrichment
-          const mergedAreas = mergeBackendWithStatic(response.data, staticAreas)
+          const mergedAreas = mergeBackendWithStatic(data, staticAreas)
           setAreas(mergedAreas)
         } else {
           // API failed or no data, fall back to static
