@@ -357,7 +357,7 @@ function SCOUTStatsBar({ live }: { live: SCOUTLiveData }) {
     : null
 
   const highAlerts = live.anomalies.filter(a => a.severity === 'critical' || a.severity === 'high').length
-  const heatingAreas = live.areaMetrics.filter(a => a.priceChange7d > 2 || a.demandScore >= 85).length
+  const heatingAreas = live.areaMetrics.filter(a => a.priceChange7d > 2 || a.demandScore >= 70).length
   const avgPriceSqft = live.areaMetrics.length > 0
     ? Math.round(live.areaMetrics.reduce((s, a) => s + a.avgPricePerSqft, 0) / live.areaMetrics.length)
     : mockMarketMetrics.avgPricePerSqft
@@ -767,22 +767,34 @@ function AreaWatchlist({ live }: { live: SCOUTLiveData }) {
                     <span className="text-[10px] font-mono text-white/80">AED {area.avgPricePerSqft?.toLocaleString()}</span>
                   </td>
                   <td className="py-2 px-2 text-center">
-                    <span className="text-[9px] font-mono" style={{ color: getPriceChangeColor(area.priceChange7d || 0) }}>
-                      {(area.priceChange7d || 0) > 0 ? '+' : ''}{(area.priceChange7d || 0).toFixed(1)}%
-                    </span>
+                    {(area.priceChange7d || 0) !== 0 ? (
+                      <span className="text-[9px] font-mono" style={{ color: getPriceChangeColor(area.priceChange7d || 0) }}>
+                        {(area.priceChange7d || 0) > 0 ? '+' : ''}{(area.priceChange7d || 0).toFixed(1)}%
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-mono text-pcis-text-muted/40">--</span>
+                    )}
                   </td>
                   <td className="py-2 px-2 text-center">
-                    <span className="text-[9px] font-mono" style={{ color: getPriceChangeColor(area.priceChange30d || 0) }}>
-                      {(area.priceChange30d || 0) > 0 ? '+' : ''}{(area.priceChange30d || 0).toFixed(1)}%
-                    </span>
+                    {(area.priceChange30d || 0) !== 0 ? (
+                      <span className="text-[9px] font-mono" style={{ color: getPriceChangeColor(area.priceChange30d || 0) }}>
+                        {(area.priceChange30d || 0) > 0 ? '+' : ''}{(area.priceChange30d || 0).toFixed(1)}%
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-mono text-pcis-text-muted/40">--</span>
+                    )}
                   </td>
                   <td className="py-2 px-2 text-center">
                     <span className="text-[10px] font-mono text-white/60">{(area.inventoryCount || area.propertyCount || 0).toLocaleString()}</span>
                   </td>
                   <td className="py-2 px-2 text-center">
-                    <span className="text-[10px] font-mono" style={{ color: (area.avgDaysOnMarket || 0) <= 35 ? '#22c55e' : (area.avgDaysOnMarket || 0) <= 50 ? '#f59e0b' : '#ef4444' }}>
-                      {area.avgDaysOnMarket || 0}d
-                    </span>
+                    {(area.avgDaysOnMarket || 0) > 0 ? (
+                      <span className="text-[10px] font-mono" style={{ color: (area.avgDaysOnMarket || 0) <= 35 ? '#22c55e' : (area.avgDaysOnMarket || 0) <= 50 ? '#f59e0b' : '#ef4444' }}>
+                        {area.avgDaysOnMarket}d
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-mono text-pcis-text-muted/40">New</span>
+                    )}
                   </td>
                   <td className="py-2 px-2 text-center">
                     {alertCount > 0 ? (
