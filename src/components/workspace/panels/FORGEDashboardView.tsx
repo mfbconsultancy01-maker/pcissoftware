@@ -17,6 +17,7 @@ import {
   type CommunicationDraft,
   type LifecycleAction,
 } from '@/lib/forgeData'
+import { useAdvisorDashboard } from '@/lib/useForgeData'
 import { clients, cognitiveProfiles, engagementMetrics, getProperty, getClient as getClientById } from '@/lib/mockData'
 import { getCIEClient, ARCHETYPES } from '@/lib/cieData'
 import { engineMatches, getEngineMatchesForClient, getClientPurpose, PURPOSE_CONFIGS } from '@/lib/engineData'
@@ -155,10 +156,24 @@ function PanelHeader({ title, accent, right }: { title: string; accent?: string;
 // TOP STATS BAR
 // ═══════════════════════════════════════════════════════════════════════════
 
-function FORGEStatsBar() {
+function FORGEStatsBar({ liveDashboard }: { liveDashboard?: any }) {
   const summary = getForgeSummary()
 
-  const stats = [
+  // Merge live backend data when available
+  const alerts = liveDashboard?.alerts
+  const activity = liveDashboard?.activity
+  const overview = liveDashboard?.overview
+
+  const stats = liveDashboard ? [
+    { label: 'Alerts', value: `${alerts?.total || 0}`, color: '#a855f7' },
+    { label: 'Urgent', value: `${alerts?.urgent || 0}`, color: (alerts?.urgent || 0) > 0 ? '#ef4444' : '#22c55e' },
+    { label: 'High', value: `${alerts?.high || 0}`, color: '#f59e0b' },
+    { label: 'Recs', value: `${overview?.urgentRecommendations || 0}`, color: '#C9A55A' },
+    { label: 'Reports', value: `${activity?.adoptionMetrics?.reportsGenerated || 0}`, color: '#06b6d4' },
+    { label: 'Matches', value: `${overview?.highScoringUnpresentedMatches || 0}`, color: '#8b5cf6' },
+    { label: 'Actions', value: `${activity?.totalActions || 0}`, color: '#22c55e' },
+    { label: 'CIE Signals', value: `${activity?.feedbackSignalsGenerated || 0}`, color: '#ec4899' },
+  ] : [
     { label: 'Total Actions', value: `${summary.totalActions}`, color: '#a855f7' },
     { label: 'Pending', value: `${summary.pendingActions}`, color: '#f59e0b' },
     { label: 'Critical', value: `${summary.criticalActions}`, color: summary.criticalActions > 0 ? '#ef4444' : '#22c55e' },
@@ -369,15 +384,35 @@ function FORGEAnalyticsRow() {
 // ACTION WATCHLIST -- Priority table (mirrors CIE Client Watchlist / SCOUT Area Watchlist)
 // ═══════════════════════════════════════════════════════════════════════════
 
-function DealRoomWatchlist() {
+function DealRoomWatchlist({ liveDashboard }: { liveDashboard?: any }) {
   const nav = useWorkspaceNav()
 
-  // Top client-property matches from ENGINE -- these are the Deal Room targets
-  const topDeals = useMemo(() => {
+  // Top client-property matches -- prefer live backend data, fall back to mock
+  const topDeals: any[] = useMemo(() => {
+    if (liveDashboard?.topMatches?.length > 0) {
+      return liveDashboard.topMatches.map((m: any) => ({
+        id: m.id,
+        clientId: m.client,
+        propertyId: '',
+        overallScore: m.score * 100,
+        grade: m.grade || 'B',
+        purpose: m.propertyType || 'Investment',
+        status: 'active',
+        pillars: {
+          financialFit: { score: m.score * 100 },
+          lifestyleFit: { score: m.score * 90 },
+          investmentFit: { score: m.score * 95 },
+        },
+        _liveClient: m.client,
+        _liveProperty: m.property,
+        _liveLocation: m.location,
+        _livePrice: m.price,
+      }))
+    }
     return [...engineMatches]
-      .sort((a, b) => b.overallScore - a.overallScore)
+      .sort((a: any, b: any) => b.overallScore - a.overallScore)
       .slice(0, 12)
-  }, [])
+  }, [liveDashboard])
 
   const getScoreColor = (score: number): string => {
     if (score >= 80) return '#22c55e'
@@ -497,7 +532,7 @@ function DealRoomWatchlist() {
 // BOTTOM ROW -- Deal Briefs Feed, Recent Proposals, Comms Queue, Activity Log
 // ═══════════════════════════════════════════════════════════════════════════
 
-function FORGEBottomRow() {
+function FORGEBottomRow({ liveDashboard }: { liveDashboard?: any }) {
   const nav = useWorkspaceNav()
 
   // Deal Room -- top A/A+ matches ready for AI brief generation
@@ -666,22 +701,29 @@ function FORGEBottomRow() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 export default function FORGEDashboardView(): React.ReactElement {
+  const { data: liveDashboard, loading: liveLoading, source: dataSource, refresh } = useAdvisorDashboard(7)
+
   return (
     <div className="h-full flex flex-col overflow-y-auto">
       <div className="flex-1 space-y-4 pb-6">
 
         {/* Header */}
         <div className="flex items-center justify-between flex-shrink-0">
-          <div>
-            <h2 className="text-lg font-semibold text-pcis-text tracking-tight"
-              style={{ fontFamily: "'Playfair Display', serif" }}>
-              Advisor Action Engine
-            </h2>
-            <p className="text-[10px] text-pcis-text-muted tracking-wider uppercase mt-0.5">
-              E4 -- AI Deal Room -- Meeting Prep -- Opportunity Radar -- Client Dossier
-            </p>
+          <div className="flex items-center gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-pcis-text tracking-tight"
+                style={{ fontFamily: "'Playfair Display', serif" }}>
+                Advisor Action Engine
+              </h2>
+              <p className="text-[10px] text-pcis-text-muted tracking-wider uppercase mt-0.5">
+                E4 -- AI Deal Room -- Meeting Prep -- Opportunity Radar -- Client Dossier
+              </p>
+            </div>
+            <span className={`text-[7px] font-mono font-bold px-1.5 py-0.5 rounded ${dataSource === 'live' ? 'bg-emerald-400/15 text-emerald-400' : 'bg-amber-400/15 text-amber-400'}`}>
+              {liveLoading ? 'LOADING' : dataSource === 'live' ? 'LIVE' : 'MOCK'}
+            </span>
           </div>
-          <FORGEStatsBar />
+          <FORGEStatsBar liveDashboard={liveDashboard} />
         </div>
 
         {/* Sub-Panel Cards */}
@@ -690,11 +732,11 @@ export default function FORGEDashboardView(): React.ReactElement {
         {/* Analytics Row */}
         <FORGEAnalyticsRow />
 
-        {/* Deal Room Watchlist */}
-        <DealRoomWatchlist />
+        {/* Deal Room Watchlist -- uses live top matches when available */}
+        <DealRoomWatchlist liveDashboard={liveDashboard} />
 
         {/* Bottom Row */}
-        <FORGEBottomRow />
+        <FORGEBottomRow liveDashboard={liveDashboard} />
       </div>
     </div>
   )

@@ -6,6 +6,7 @@ import {
   type ForgeActivityLog,
   type ForgeActivityActionType,
 } from '@/lib/forgeData'
+import { useForgeActivity } from '@/lib/useForgeData'
 import { clients, properties } from '@/lib/mockData'
 import { ClientLink, PropertyLink } from '../useWorkspaceNav'
 
@@ -44,12 +45,42 @@ const outcomeColors: Record<string, string> = {
 }
 
 export default function FORGEActivityLogView(): React.ReactElement {
+  const { data: liveActivity, source: dataSource } = useForgeActivity({ days: 30, limit: 100 })
   const [actionTypeFilter, setActionTypeFilter] = useState<ForgeActivityActionType | 'all'>('all')
   const [outcomeFilter, setOutcomeFilter] = useState<OutcomeType>('all')
   const [searchQuery, setSearchQuery] = useState<string>('')
 
+  // Map live backend activity to ForgeActivityLog shape, fall back to mock
+  const activityData: ForgeActivityLog[] = useMemo(() => {
+    if (liveActivity && liveActivity.length > 0) {
+      return liveActivity.map((log: any) => {
+        // Map backend action names to ForgeActivityActionType
+        const actionMap: Record<string, ForgeActivityActionType> = {
+          'report.generated': 'brief-generated',
+          'report.sent': 'proposal-sent',
+          'match.presented': 'viewing-arranged',
+          'match.converted': 'offer-prepared',
+          'recommendation.accepted': 'touch-completed',
+          'recommendation.presented': 'comm-drafted',
+          'client.viewed': 'touch-completed',
+        }
+        return {
+          id: log.id,
+          clientId: log.entityId || '',
+          propertyId: undefined,
+          actionType: actionMap[log.action] || 'touch-completed' as ForgeActivityActionType,
+          title: log.action.replace('.', ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()),
+          detail: `${log.user?.name || 'System'} -- ${log.action}`,
+          timestamp: log.createdAt,
+          outcome: 'neutral' as const,
+        }
+      })
+    }
+    return forgeActivityLog
+  }, [liveActivity])
+
   const filteredLog = useMemo(() => {
-    let results = forgeActivityLog
+    let results = activityData
 
     if (actionTypeFilter !== 'all') {
       results = results.filter((a: ForgeActivityLog) => a.actionType === actionTypeFilter)
@@ -114,11 +145,16 @@ export default function FORGEActivityLogView(): React.ReactElement {
       {/* Header */}
       <div className="flex items-center justify-between flex-shrink-0 pb-3 border-b border-pcis-border/10">
         <div>
-          <h2 className="text-lg font-semibold text-pcis-text tracking-tight" style={{ fontFamily: "'Playfair Display', serif" }}>
-            Activity Log
-          </h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold text-pcis-text tracking-tight" style={{ fontFamily: "'Playfair Display', serif" }}>
+              Activity Log
+            </h2>
+            <span className={`text-[7px] font-mono font-bold px-1.5 py-0.5 rounded ${dataSource === 'live' ? 'bg-emerald-400/15 text-emerald-400' : 'bg-amber-400/15 text-amber-400'}`}>
+              {dataSource === 'live' ? 'LIVE' : 'MOCK'}
+            </span>
+          </div>
           <p className="text-[10px] text-pcis-text-muted tracking-wider uppercase mt-0.5">
-            Advisor Audit Trail
+            Advisor Audit Trail -- CIE Feedback Loop
           </p>
         </div>
       </div>

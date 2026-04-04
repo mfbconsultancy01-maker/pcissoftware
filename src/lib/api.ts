@@ -535,6 +535,194 @@ export const p1Api = {
     return data
   },
 
+  // ── FORGE: Advisor Output Engine ────────────────────────────────────────
+
+  // Alert dashboard (grouped by priority and type)
+  getAlertDashboard: async (userId?: string) => {
+    const query = userId ? `?userId=${userId}` : ''
+    const data = await p1Request(`/api/advisor/alerts${query}`)
+    return data
+  },
+
+  // Paginated alert list with filters
+  getAlerts: async (params?: { status?: string; priority?: string; type?: string; clientId?: string; page?: number; pageSize?: number }) => {
+    const query = new URLSearchParams()
+    if (params?.status) query.set('status', params.status)
+    if (params?.priority) query.set('priority', params.priority)
+    if (params?.type) query.set('type', params.type)
+    if (params?.clientId) query.set('clientId', params.clientId)
+    if (params?.page) query.set('page', String(params.page))
+    if (params?.pageSize) query.set('pageSize', String(params.pageSize))
+    const qs = query.toString() ? `?${query.toString()}` : ''
+    const data = await p1Request(`/api/advisor/alerts/list${qs}`)
+    return data
+  },
+
+  // Acknowledge alert
+  acknowledgeAlert: async (alertId: string) => {
+    const data = await p1Request(`/api/advisor/alerts/${alertId}/acknowledge`, { method: 'PATCH' })
+    return data
+  },
+
+  // Dismiss alert
+  dismissAlert: async (alertId: string) => {
+    const data = await p1Request(`/api/advisor/alerts/${alertId}/dismiss`, { method: 'PATCH' })
+    return data
+  },
+
+  // Act on alert
+  actOnAlert: async (alertId: string) => {
+    const data = await p1Request(`/api/advisor/alerts/${alertId}/action`, { method: 'PATCH' })
+    return data
+  },
+
+  // Generate recommendations for a client (AI-powered)
+  generateRecommendations: async (clientId: string, reportId?: string) => {
+    const data = await p1Request('/api/advisor/recommendations/generate', {
+      method: 'POST',
+      body: JSON.stringify({ clientId, reportId }),
+    })
+    return data
+  },
+
+  // List recommendations with filters
+  getRecommendations: async (params?: { clientId?: string; classification?: string; category?: string; status?: string; urgency?: string; page?: number }) => {
+    const query = new URLSearchParams()
+    if (params?.clientId) query.set('clientId', params.clientId)
+    if (params?.classification) query.set('classification', params.classification)
+    if (params?.category) query.set('category', params.category)
+    if (params?.status) query.set('status', params.status)
+    if (params?.urgency) query.set('urgency', params.urgency)
+    if (params?.page) query.set('page', String(params.page))
+    const qs = query.toString() ? `?${query.toString()}` : ''
+    const data = await p1Request(`/api/advisor/recommendations${qs}`)
+    return data
+  },
+
+  // Single recommendation detail
+  getRecommendationDetail: async (recId: string) => {
+    const data = await p1Request(`/api/advisor/recommendations/${recId}`)
+    return data
+  },
+
+  // Present recommendation to client
+  presentRecommendation: async (recId: string, presentedVia?: string) => {
+    const data = await p1Request(`/api/advisor/recommendations/${recId}/present`, {
+      method: 'PATCH',
+      body: JSON.stringify({ presentedVia }),
+    })
+    return data
+  },
+
+  // Record recommendation outcome
+  recordRecommendationOutcome: async (recId: string, outcome: string, details?: { clientResponse?: string; outcomeValue?: number; outcomeNotes?: string }) => {
+    const data = await p1Request(`/api/advisor/recommendations/${recId}/outcome`, {
+      method: 'PATCH',
+      body: JSON.stringify({ outcome, ...details }),
+    })
+    return data
+  },
+
+  // Generate a full report for a client (AI-powered)
+  generateForgeReport: async (params: { clientId: string; type: string; propertyId?: string; period?: string; customSections?: string[] }) => {
+    const data = await p1Request('/api/advisor/reports/generate', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+    return data
+  },
+
+  // List reports with filters
+  getForgeReports: async (params?: { clientId?: string; type?: string; status?: string; page?: number }) => {
+    const query = new URLSearchParams()
+    if (params?.clientId) query.set('clientId', params.clientId)
+    if (params?.type) query.set('type', params.type)
+    if (params?.status) query.set('status', params.status)
+    if (params?.page) query.set('page', String(params.page))
+    const qs = query.toString() ? `?${query.toString()}` : ''
+    const data = await p1Request(`/api/advisor/reports${qs}`)
+    return data
+  },
+
+  // Full report with sections
+  getForgeReportDetail: async (reportId: string) => {
+    const data = await p1Request(`/api/advisor/reports/${reportId}`)
+    return data
+  },
+
+  // Report HTML
+  getForgeReportHtml: async (reportId: string) => {
+    const proxyPath = `advisor/reports/${reportId}/html`
+    try {
+      const res = await fetch(`${P1_PROXY_BASE}/${proxyPath}`)
+      if (!res.ok) return null
+      return await res.text()
+    } catch { return null }
+  },
+
+  // Review a report
+  reviewForgeReport: async (reportId: string, reviewedById: string) => {
+    const data = await p1Request(`/api/advisor/reports/${reportId}/review`, {
+      method: 'PATCH',
+      body: JSON.stringify({ reviewedById }),
+    })
+    return data
+  },
+
+  // Send a report to client
+  sendForgeReport: async (reportId: string, sentVia: string) => {
+    const data = await p1Request(`/api/advisor/reports/${reportId}/send`, {
+      method: 'PATCH',
+      body: JSON.stringify({ sentVia }),
+    })
+    return data
+  },
+
+  // Log an activity (CIE feedback loop)
+  logForgeActivity: async (params: { userId: string; action: string; entityType?: string; entityId?: string; metadata?: Record<string, any>; durationMs?: number; sessionId?: string }) => {
+    const data = await p1Request('/api/advisor/activity', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+    return data
+  },
+
+  // Activity feed with filters
+  getActivityFeed: async (params?: { userId?: string; entityType?: string; action?: string; days?: number; page?: number; limit?: number }) => {
+    const query = new URLSearchParams()
+    if (params?.userId) query.set('userId', params.userId)
+    if (params?.entityType) query.set('entityType', params.entityType)
+    if (params?.action) query.set('action', params.action)
+    if (params?.days) query.set('days', String(params.days))
+    if (params?.page) query.set('page', String(params.page))
+    if (params?.limit) query.set('limit', String(params.limit))
+    const qs = query.toString() ? `?${query.toString()}` : ''
+    const data = await p1Request(`/api/advisor/activity${qs}`)
+    return data
+  },
+
+  // Activity summary (analytics + adoption metrics)
+  getActivitySummary: async (days = 30) => {
+    const data = await p1Request(`/api/advisor/activity/summary?days=${days}`)
+    return data
+  },
+
+  // Entity timeline (full history for any entity)
+  getEntityTimeline: async (entityType: string, entityId: string) => {
+    const data = await p1Request(`/api/advisor/activity/entity/${entityType}/${entityId}`)
+    return data
+  },
+
+  // Unified advisor dashboard (command center)
+  getAdvisorDashboard: async (params?: { userId?: string; days?: number }) => {
+    const query = new URLSearchParams()
+    if (params?.userId) query.set('userId', params.userId)
+    if (params?.days) query.set('days', String(params.days))
+    const qs = query.toString() ? `?${query.toString()}` : ''
+    const data = await p1Request(`/api/advisor/dashboard${qs}`)
+    return data
+  },
+
   // ── Health ──────────────────────────────────────────────────────────────
   health: async () => {
     // Health check goes direct — it's unauthenticated on the backend
