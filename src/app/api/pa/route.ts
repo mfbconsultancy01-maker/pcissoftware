@@ -1,15 +1,218 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs/server'
-import { callClaude } from '@/lib/aiEngine'
 
 // ============================================================================
-// PCIS Personal Assistant -- API Route
+// PCIS Personal Assistant -- Orchestrating API Route
 // ============================================================================
-// The PA sits on top of the entire PCIS ecosystem. It knows every engine,
-// every concept, and speaks in polished British English -- the way a senior
-// private banker's assistant would.
+// The PA is the command layer. It receives the user's question, classifies
+// which engine(s) are relevant, queries them for LIVE data, then synthesises
+// a polished response enriched with real intelligence.
+//
+// Flow:
+//   User question → PA classifier → Engine Agent(s) → PA synthesis → Response
+//
+// Engine agents:
+//   E1 CIE  — POST /api/cie-agent/chat  (live Copper client data)
+//   E2 SCOUT — POST /api/scout-agent/chat (live market intelligence)
+//   E3 ENGINE — GET /api/engine/status    (matching stats)
+//   E4 FORGE — (request-response, no chat endpoint yet)
 // ============================================================================
 
+const P1_BACKEND_URL = process.env.P1_BACKEND_URL || 'https://pcisp1-production.up.railway.app'
+const SERVICE_API_KEY = process.env.P1_SERVICE_API_KEY || ''
+const COMMAND_CENTER_URL = process.env.COMMAND_CENTER_URL || 'https://pcis-command-center.vercel.app'
+
+// ── Org resolution cache (same pattern as P1 proxy) ────────────────────────
+const orgCache = new Map<string, { p1OrgId: string; resolvedAt: number }>()
+const CACHE_TTL_MS = 5 * 60 * 1000
+
+async function resolveOrgId(clerkOrgId: string): Promise<string | null> {
+  const cached = orgCache.get(clerkOrgId)
+  if (cached && Date.now() - cached.resolvedAt < CACHE_TTL_MS) {
+    return cached.p1OrgId
+  }
+  try {
+    const res = await fetch(`${COMMAND_CENTER_URL}/api/franklin/vega`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'resolve-org', clerkOrgId }),
+      signal: AbortSignal.timeout(8000),
+    })
+    if (!res.ok) return cached?.p1OrgId || null
+    const data = await res.json()
+    if (data.tenantId) {
+      orgCache.set(clerkOrgId, { p1OrgId: data.tenantId, resolvedAt: Date.now() })
+      return data.tenantId
+    }
+    return null
+  } catch {
+    return cached?.p1OrgId || null
+  }
+}
+
+// ── Call a P1 backend engine endpoint ───────────────────────────────────────
+async function callEngine(
+  path: string,
+  orgId: string,
+  body?: Record<string, unknown>,
+  method: 'GET' | 'POST' = 'POST'
+): Promise<{ ok: boolean; data: any }> {
+  try {
+    const res = await fetch(`${P1_BACKEND_URL}${path}`, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Org-Id': orgId,
+        ...(SERVICE_API_KEY ? { 'X-API-Key': SERVICE_API_KEY } : {}),
+      },
+      ...(method === 'POST' && body ? { body: JSON.stringify(body) } : {}),
+      signal: AbortSignal.timeout(15000),
+    })
+    if (!res.ok) {
+      console.warn(`[PA] Engine ${path} returned ${res.status}`)
+      return { ok: false, data: null }
+    }
+    const json = await res.json()
+    return { ok: true, data: json }
+  } catch (err: any) {
+    console.warn(`[PA] Engine ${path} error:`, err.message)
+    return { ok: false, data: null }
+  }
+}
+
+// ── Engine classification ───────────────────────────────────────────────────
+// Determines which engines to query based on the user's latest message.
+// Returns a set of engine keys. Uses keyword matching for speed.
+type EngineKey = 'cie' | 'scout' | 'engine' | 'forge'
+
+function classifyEngines(message: string): Set<EngineKey> {
+  const m = message.toLowerCase()
+  const engines = new Set<EngineKey>()
+
+  // CIE triggers: client names, profiles, engagement, cognitive, archetype
+  const ciePatterns = [
+    'client', 'profile', 'engagement', 'cognitive', 'archetype', 'at risk',
+    'at-risk', 'cooling', 'cold', 'dormant', 'thriving', 'portfolio',
+    'how is', 'how are', 'status', 'briefing', 'morning brief', 'cie',
+    'contact', 'who', 'relationship', 'person', 'people', 'investor',
+    'buyer', 'seller', 'prediction', 'flight risk', 'decision velocity',
+    'risk tolerance', 'trust', 'sentiment', 'behaviour', 'behavior',
+  ]
+  if (ciePatterns.some((p) => m.includes(p))) engines.add('cie')
+
+  // SCOUT triggers: market, area, property, prices, yield, transactions
+  const scoutPatterns = [
+    'market', 'area', 'palm', 'downtown', 'marina', 'jbr', 'difc',
+    'business bay', 'dubai', 'property', 'properties', 'price', 'yield',
+    'rental', 'transaction', 'dld', 'demand', 'scout', 'intel',
+    'neighbourhood', 'neighborhood', 'trend', 'anomal', 'opportunity',
+    'sqft', 'square', 'bullish', 'bearish', 'outlook',
+  ]
+  if (scoutPatterns.some((p) => m.includes(p))) engines.add('scout')
+
+  // ENGINE triggers: match, compatibility, scoring, pillar
+  const enginePatterns = [
+    'match', 'compatible', 'compatibility', 'score', 'pillar', 'engine',
+    'suitab', 'alignment', 'recommend a property', 'find a property',
+    'best property', 'which property',
+  ]
+  if (enginePatterns.some((p) => m.includes(p))) engines.add('engine')
+
+  // FORGE triggers: draft, email, whatsapp, meeting prep, memo, communication
+  const forgePatterns = [
+    'draft', 'email', 'whatsapp', 'message', 'meeting prep', 'memo',
+    'memorandum', 'communication', 'write', 'compose', 'forge', 'action',
+    'deal room', 'call script', 'brief for',
+  ]
+  if (forgePatterns.some((p) => m.includes(p))) engines.add('forge')
+
+  // If nothing matched (general/greeting/feedback), don't query any engine
+  return engines
+}
+
+// ── Query engines in parallel and build intelligence block ──────────────────
+async function gatherEngineIntelligence(
+  message: string,
+  engines: Set<EngineKey>,
+  orgId: string
+): Promise<string> {
+  if (engines.size === 0) return ''
+
+  const results: string[] = []
+  const promises: Promise<void>[] = []
+
+  if (engines.has('cie')) {
+    promises.push(
+      callEngine('/api/cie-agent/chat', orgId, { message, history: [] }).then(
+        ({ ok, data }) => {
+          if (ok && data?.data?.reply) {
+            results.push(
+              `[ENGINE 1 -- CIE INTELLIGENCE (live from Copper CRM)]:\n${data.data.reply}\n` +
+              (data.data.context
+                ? `Context: ${data.data.context.totalClients} clients, ${data.data.context.atRiskCount} at-risk`
+                : '')
+            )
+          }
+        }
+      )
+    )
+  }
+
+  if (engines.has('scout')) {
+    promises.push(
+      callEngine('/api/scout-agent/chat', orgId, { message, history: [] }).then(
+        ({ ok, data }) => {
+          if (ok && data?.data?.reply) {
+            results.push(
+              `[ENGINE 2 -- SCOUT INTELLIGENCE (live market data)]:\n${data.data.reply}\n` +
+              (data.data.context
+                ? `Context: ${data.data.context.totalProperties} properties, ${data.data.context.totalAreas} areas, ${data.data.context.anomalyCount} anomalies`
+                : '')
+            )
+          }
+        }
+      )
+    )
+  }
+
+  if (engines.has('engine')) {
+    promises.push(
+      callEngine('/api/engine/status', orgId, undefined, 'GET').then(
+        ({ ok, data }) => {
+          if (ok && data?.data) {
+            const s = data.data
+            results.push(
+              `[ENGINE 3 -- MATCHING STATUS (live)]:\n` +
+              `Last run: ${s.lastRun || 'never'}, ` +
+              `Total matches: ${s.totalMatches || 0}, ` +
+              `Active matches: ${s.activeMatches || 0}`
+            )
+          }
+        }
+      )
+    )
+  }
+
+  if (engines.has('forge')) {
+    // FORGE has no chat endpoint -- note this to the PA so it can still advise
+    results.push(
+      `[ENGINE 4 -- FORGE (action layer)]:\nFORGE is available for drafting communications, meeting briefs, and opportunity scans. ` +
+      `To use it, the advisor should open the FORGE panel in the workspace and select a client + action type.`
+    )
+  }
+
+  await Promise.allSettled(promises)
+
+  if (results.length === 0) return ''
+
+  return (
+    '\n\n--- LIVE ENGINE INTELLIGENCE (gathered for this question) ---\n' +
+    results.join('\n\n') +
+    '\n--- END ENGINE INTELLIGENCE ---'
+  )
+}
+
+// ── PA System Prompt ────────────────────────────────────────────────────────
 const PA_SYSTEM_PROMPT = `You are the Personal Assistant of PCIS Solutions -- a Private Client Intelligence System built for luxury real estate brokers in Dubai. You serve as the broker's right hand: knowledgeable, discreet, and impeccably professional.
 
 YOUR IDENTITY:
@@ -22,41 +225,29 @@ YOUR IDENTITY:
 - You never say "I'm an AI" or "As an AI" or mention Claude, GPT, Anthropic, or OpenAI.
 - You never use the words "delve", "leverage", "utilize", "streamline", or "holistic".
 
-YOUR KNOWLEDGE -- THE PCIS ECOSYSTEM:
-You have comprehensive knowledge of the entire PCIS platform:
+YOUR ARCHITECTURE -- ENGINE REPRESENTATIVES:
+You are the senior orchestrator. Four specialist engine representatives report to you:
 
 ENGINE 1 -- CIE (Client Intelligence Engine):
-- Builds cognitive profiles of each client from conversation history
-- Tracks 4 cognitive dimensions: Analytical, Relational, Aspirational, Security
-- Identifies client archetypes (e.g., "The Analytical Investor", "The Lifestyle Connoisseur")
-- Monitors engagement scores, momentum, decision velocity
-- Predicts client behaviour: "Imminent Purchase", "Flight Risk", "Analysis Paralysis", etc.
-- Client types: HNW (High Net Worth) and UHNW (Ultra High Net Worth)
-- Stages: Lead In, Discovery, Viewing, Negotiation, Offer Made, Closed
+- Its representative knows every client: cognitive profiles, archetypes, engagement scores, risk flags, decision velocity, trust formation -- all derived from live Copper CRM data.
+- When you need client intelligence, you consult CIE. Its live data appears in your context automatically.
 
 ENGINE 2 -- SCOUT (Market Intelligence):
-- Tracks Dubai real estate market data in real time
-- Monitors area-level metrics: demand score, rental yield, price/sqft, transaction volume
-- Tracks 30-day and 90-day price movements
-- Provides market outlook ratings per area (Bullish, Stable, Cautious)
-- Covers key areas: Palm Jumeirah, Downtown, Dubai Marina, JBR, DIFC, Business Bay, etc.
-- Integrates DLD (Dubai Land Department) transaction data
+- Its representative knows the Dubai property market: area metrics, demand scores, rental yields, price movements, transaction volumes, anomalies, and opportunities.
+- When you need market intelligence, you consult SCOUT. Its live data appears in your context automatically.
 
 ENGINE 3 -- ENGINE (Matching & Scoring):
-- Matches clients to properties using 4 pillars:
-  * Financial Suitability (budget vs price, affordability)
-  * Lifestyle Alignment (preferences, location, amenities)
-  * Investment Potential (rental yield, capital appreciation, market timing)
-  * Purpose Alignment (end-use vs investment vs portfolio diversification)
-- Produces an overall compatibility score (0-100) and grade (A+ to D)
-- Generates narrative intelligence briefs explaining why a match works or does not
+- Matches clients to properties using 4 pillars: Financial Suitability, Lifestyle Alignment, Investment Potential, Purpose Alignment.
+- Produces compatibility scores (0-100) and grades (A+ to D).
 
 ENGINE 4 -- FORGE (Action Layer):
-- Generates communication drafts (emails, WhatsApp messages, call scripts)
-- Prepares meeting briefs for client interactions
-- Scans for new opportunities based on client profiles
-- Produces Deal Intelligence Memoranda -- McKinsey-grade PDF documents for client presentation
-- Manages the Deal Room: watchlist, pipeline tracking, deal stages
+- Generates communication drafts (emails, WhatsApp messages, call scripts), meeting briefs, opportunity scans, and Deal Intelligence Memoranda.
+- Available in the workspace panel for the advisor to use directly.
+
+HOW YOU USE ENGINE DATA:
+When live engine intelligence is provided in your context (between --- LIVE ENGINE INTELLIGENCE --- markers), you MUST use that data to answer the question. Synthesise the raw engine intelligence into your polished PA voice. Do NOT say "the CIE engine reports..." -- instead, speak as though you know this yourself: "Your client portfolio currently holds 10 active profiles, with two showing cooling engagement..."
+
+If no engine data is provided (for general questions, greetings, or platform guidance), respond from your general knowledge of the PCIS platform.
 
 THE DASHBOARD:
 - Portfolio Health: breakdown of client statuses (Thriving, Active, Cooling, Cold, Dormant)
@@ -65,39 +256,31 @@ THE DASHBOARD:
 - Active Matches: current client-property pairings with compatibility scores
 - Action Queue: time-sensitive tasks generated by the system
 - Market Intel: latest property market signals from SCOUT
-- Market Data: live rates (mortgage, USD/AED, GBP/AED, EUR/AED), DLD transaction counts
-- Latest News: curated Dubai property market news feed
 
 THE WORKSPACE:
 - Multi-panel workspace where brokers can open any combination of panels
 - Panels include: CIE Dossier, SCOUT Area Intel, Match Analysis, FORGE Deal Room, etc.
-- Custom panel layouts can be saved and restored
-
-PCIS ACADEMY:
-- Training materials and documentation for the platform
-- Guides on how to interpret scores, use engines, and apply intelligence in practice
 
 FEEDBACK AND ISSUE REPORTING:
 Users may report bugs, suggest improvements, or share feedback about the platform through you. When this happens:
 - Acknowledge their feedback warmly and professionally.
 - Confirm you have noted it and that it will be passed along to the development team.
-- If it is a bug, ask for any additional detail that might help (which page, what they were doing, what they expected vs what happened) -- but do not be pushy about it.
-- IMPORTANT: When the user's message is feedback, a bug report, a suggestion, or a complaint about the platform, you MUST include the exact tag [FEEDBACK] at the very end of your response (after your final sentence). This tag will be hidden from the user but allows the system to route the feedback properly. Only include this tag when the message is genuinely about platform feedback, not for general questions.
+- IMPORTANT: When the user's message is feedback, a bug report, a suggestion, or a complaint about the platform, you MUST include the exact tag [FEEDBACK] at the very end of your response.
 
 HOW TO RESPOND:
-- If asked about a specific client, property, or data point you do not have in the conversation, say you would need to look that up and suggest the user check the relevant panel or engine.
-- If asked about platform features, explain them clearly as though briefing a new colleague.
-- If asked for advice on a deal or client situation, provide thoughtful strategic guidance drawing on your knowledge of the system's capabilities.
+- Use live engine intelligence when available -- weave it naturally into your response.
 - Keep responses concise -- typically 2-4 sentences for simple queries, up to 2-3 short paragraphs for complex ones.
-- When appropriate, reference which engine or panel would provide the detailed data.
+- If engine data is thin or an engine was unreachable, mention the relevant panel the advisor can check directly.
 
 OPENING GREETING (use only for the first message of a conversation):
 Greet the user warmly by name, introduce yourself as their PA, and ask how you may be of service. Example: "Good afternoon, Michael. Your PA is at your service -- how may I support you today?"
 Use the appropriate time-of-day greeting (morning before 12, afternoon before 17, evening after).`
 
+// ── Route Handler ───────────────────────────────────────────────────────────
+
 export async function POST(request: NextRequest) {
   try {
-    const { userId } = await auth()
+    const { userId, orgId: clerkOrgId } = await auth()
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -109,30 +292,52 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Messages array is required' }, { status: 400 })
     }
 
-    // Build context-aware system prompt
+    // ── Resolve tenant org for engine queries ───────────────────────────
+    let p1OrgId: string | null = null
+    if (clerkOrgId) {
+      p1OrgId = await resolveOrgId(clerkOrgId)
+    }
+
+    // ── Classify which engines to consult ───────────────────────────────
+    const lastUserMsg = messages
+      .filter((m: { role: string }) => m.role === 'user')
+      .pop()
+    const userQuestion = lastUserMsg?.content || ''
+    const isGreeting = userQuestion.includes('[PA opened')
+
+    let engineIntelligence = ''
+    if (!isGreeting && p1OrgId) {
+      const engines = classifyEngines(userQuestion)
+      if (engines.size > 0) {
+        console.log(`[PA] Consulting engines: ${[...engines].join(', ')} for: "${userQuestion.substring(0, 60)}..."`)
+        engineIntelligence = await gatherEngineIntelligence(userQuestion, engines, p1OrgId)
+      }
+    }
+
+    // ── Build context-aware system prompt ────────────────────────────────
     const now = new Date()
     const hour = now.getHours()
     const timeOfDay = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening'
     const dateStr = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
 
     const contextBlock = `
+
 CURRENT CONTEXT:
 - Time of day: ${timeOfDay}
 - Date: ${dateStr}
 - User name: ${userName || 'the user'}
 - Tenant/Organisation: ${tenantName || 'PCIS Solutions'}
-- This is message ${messages.length} in the conversation.${messages.length === 1 ? ' This is the opening message -- greet the user.' : ''}`
+- This is message ${messages.length} in the conversation.${messages.length === 1 ? ' This is the opening message -- greet the user.' : ''}
+- Tenant resolved: ${p1OrgId ? 'yes (live engine data available)' : 'no (engines not reachable)'}${engineIntelligence}`
 
     const fullSystemPrompt = PA_SYSTEM_PROMPT + contextBlock
 
-    // Build the conversation for Claude (multi-turn)
-    // Claude API expects alternating user/assistant messages
+    // ── Build conversation for Claude ───────────────────────────────────
     const conversationMessages = messages.map((msg: { role: string; content: string }) => ({
       role: msg.role === 'assistant' ? 'assistant' : 'user',
       content: msg.content,
     }))
 
-    // Use Claude directly with multi-turn conversation
     const apiKey = process.env.ANTHROPIC_API_KEY
     if (!apiKey) {
       throw new Error('Anthropic API key not configured')
@@ -147,7 +352,7 @@ CURRENT CONTEXT:
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 1500,
+        max_tokens: 2000,
         temperature: 0.7,
         system: fullSystemPrompt,
         messages: conversationMessages,
@@ -171,21 +376,18 @@ CURRENT CONTEXT:
     const userContent = cleaned.replace(/\[FEEDBACK\]/g, '').trim()
 
     if (isFeedback) {
-      // Extract the user's last message as the feedback content
-      const lastUserMsg = messages
+      const feedbackMsg = messages
         .filter((m: { role: string }) => m.role === 'user')
         .pop()
-
-      const feedbackText = lastUserMsg?.content || 'No content'
+      const feedbackText = feedbackMsg?.content || 'No content'
       const feedbackPayload = `[PA Feedback] From: ${userName || 'Unknown'} (${tenantName || 'Unknown tenant'}) | ${new Date().toISOString()}\n\n${feedbackText}`
 
-      // Fire-and-forget to command center (Vercel)
       try {
         await fetch('https://pcis-command-center.vercel.app/api/franklin/feedback', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            tenant_id: 'tenant-001',
+            tenant_id: p1OrgId || 'unknown',
             tenant_name: tenantName || 'Unknown',
             source: 'pa-assistant',
             category: 'general',
@@ -203,6 +405,7 @@ CURRENT CONTEXT:
       content: userContent,
       tokens: (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0),
       isFeedback,
+      enginesConsulted: isGreeting ? [] : [...classifyEngines(userQuestion)],
     })
   } catch (error) {
     console.error('PA route error:', error)
