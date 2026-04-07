@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Image from 'next/image'
 import { useAuth } from './AuthProvider'
 
@@ -177,7 +177,25 @@ function RotatingTicker({ userName, tenantName }: { userName?: string | null; te
 // ── Main Header ──────────────────────────────────────────────────────────
 
 export default function Header() {
-  const { tenant, userName } = useAuth()
+  const { tenant, userName, userEmail, logout } = useAuth()
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!menuOpen) return
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [menuOpen])
+
+  const initials = userName
+    ? userName.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
+    : '?'
 
   return (
     <header className="h-11 border-b border-white/[0.04] bg-black/40 backdrop-blur-sm flex items-center pl-4 pr-5 relative z-20 flex-shrink-0 gap-5">
@@ -206,6 +224,51 @@ export default function Header() {
 
       {/* Center — Rotating Ticker */}
       <RotatingTicker userName={userName} tenantName={tenant?.name} />
+
+      {/* Right — User Menu */}
+      <div className="relative shrink-0" ref={menuRef}>
+        <button
+          onClick={() => setMenuOpen((prev) => !prev)}
+          className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-white/[0.04] transition-colors"
+        >
+          <div className="w-6 h-6 rounded-full bg-[#c9a55a]/20 border border-[#c9a55a]/30 flex items-center justify-center">
+            <span className="text-[9px] font-semibold text-[#c9a55a]">{initials}</span>
+          </div>
+          <svg
+            className={`w-3 h-3 text-white/30 transition-transform ${menuOpen ? 'rotate-180' : ''}`}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+
+        {menuOpen && (
+          <div className="absolute right-0 top-full mt-1 w-56 bg-[#141414] border border-white/[0.08] rounded-lg shadow-xl overflow-hidden z-50">
+            {/* User info */}
+            <div className="px-4 py-3 border-b border-white/[0.06]">
+              <p className="text-[11px] font-medium text-white/80 truncate">{userName || 'User'}</p>
+              {userEmail && (
+                <p className="text-[10px] text-white/30 truncate mt-0.5">{userEmail}</p>
+              )}
+              {tenant?.name && (
+                <p className="text-[10px] text-[#c9a55a]/50 truncate mt-1">{tenant.name}</p>
+              )}
+            </div>
+            {/* Log out */}
+            <button
+              onClick={() => { setMenuOpen(false); logout() }}
+              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-white/[0.04] transition-colors group"
+            >
+              <svg className="w-3.5 h-3.5 text-white/30 group-hover:text-red-400/70 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3-3l3-3m0 0l-3-3m3 3H9" />
+              </svg>
+              <span className="text-[11px] text-white/50 group-hover:text-red-400/70 transition-colors">
+                Log out
+              </span>
+            </button>
+          </div>
+        )}
+      </div>
     </header>
   )
 }
