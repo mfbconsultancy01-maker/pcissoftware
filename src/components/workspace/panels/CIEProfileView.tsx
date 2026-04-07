@@ -2,8 +2,6 @@
 
 import { useState, useMemo } from 'react'
 import {
-  cieClients as mockCieClients,
-  getCIEClient as getMockCIEClient,
   DIMENSION_META,
   ARCHETYPES,
   getClientSignalsForCIE,
@@ -12,6 +10,7 @@ import {
   type DimensionMeta,
 } from '@/lib/cieData'
 import { useCIEClients, getCIESourceLabel, getCIESourceColor } from '@/lib/useCIEData'
+import { P1Loading } from '@/components/P1Loading'
 
 import { useWorkspaceNav } from '../useWorkspaceNav'
 
@@ -57,7 +56,7 @@ function PanelHeader({ title, subtitle, accent, count }: { title: string; subtit
 
 // ── Client List View ────────────────────────────────────────────────────
 
-function ClientListView({ onSelectClient, allClients }: { onSelectClient: (id: string) => void; allClients: typeof mockCieClients }) {
+function ClientListView({ onSelectClient, allClients }: { onSelectClient: (id: string) => void; allClients: CIEClient[] }) {
   const clients = useMemo(() => {
     return allClients.sort((a, b) => b.overallCIEScore - a.overallCIEScore)
   }, [allClients])
@@ -396,8 +395,11 @@ function ClientProfileView({ client, onBack, dataSource }: { client: CIEClient; 
 
 export default function CIEProfileView({ entityId }: { entityId: string }) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const { data: liveCIEClients, source: dataSource } = useCIEClients()
-  const allClients = liveCIEClients || mockCieClients
+  const { data: liveCIEClients, source: dataSource, loading } = useCIEClients()
+  const allClients = liveCIEClients || []
+
+  // Loading guard AFTER all hook calls
+  if (loading && allClients.length === 0) return <P1Loading message="Loading CIE profiles..." />
 
   // Determine which client to display
   const displayId = entityId || selectedId

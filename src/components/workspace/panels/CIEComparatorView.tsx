@@ -2,7 +2,8 @@
 
 import { useState, useMemo } from 'react'
 import { useCIEClients } from '@/lib/useCIEData'
-import { cieClients as mockCieClients, getCIEClient as getMockCIEClient, DIMENSION_META, ARCHETYPES, type CIEClient } from '@/lib/cieData'
+import { DIMENSION_META, ARCHETYPES, type CIEClient } from '@/lib/cieData'
+import { P1Loading } from '@/components/P1Loading'
 
 // ════════════════════════════════════════════════════════════════════════════
 // CIE CLIENT COMPARATOR — Side-by-side cognitive profile analysis
@@ -28,14 +29,18 @@ function Panel({ children, className = '' }: { children: React.ReactNode; classN
 }
 
 export default function CIEComparatorView() {
-  const { data: liveCIEClients } = useCIEClients()
-  const cieClients = liveCIEClients || mockCieClients
+  const { data: liveCIEClients, loading } = useCIEClients()
+  const cieClients = liveCIEClients || []
 
   const [selectedIds, setSelectedIds] = useState<(string | null)[]>([
     cieClients[0]?.client.id || null,
     cieClients[1]?.client.id || null,
     null,
   ])
+
+  if (!liveCIEClients && loading) {
+    return <P1Loading message="Loading..." />
+  }
 
   const selectedClients = useMemo(
     () => selectedIds.map((id) => (id ? cieClients.find(c => c.client.id === id) || null : null)).filter(Boolean) as CIEClient[],

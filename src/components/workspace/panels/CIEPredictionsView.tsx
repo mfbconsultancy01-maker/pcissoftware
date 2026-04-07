@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { cieClients as mockCieClients, getClientPredictionsForCIE, type CIEClient } from '@/lib/cieData'
+import { type CIEClient } from '@/lib/cieData'
 import { useCIEClients } from '@/lib/useCIEData'
-import { predictions, type Prediction, type PredictionPattern, type MomentumDirection } from '@/lib/mockData'
+import { type Prediction, type PredictionPattern, type MomentumDirection } from '@/lib/mockData'
+import { P1Loading } from '@/components/P1Loading'
 import { ClientLink } from '../useWorkspaceNav'
 
 // ============================================================================
@@ -150,7 +151,11 @@ interface PredictionWithClient extends Prediction {
   clientId: string
 }
 
-function getAllPredictionsWithClients(cieClients: typeof mockCieClients): PredictionWithClient[] {
+function getAllPredictionsWithClients(cieClients: CIEClient[]): PredictionWithClient[] {
+  const predictions = cieClients
+    .filter(c => c.prediction)
+    .map(c => c.prediction!)
+
   return predictions.map(pred => {
     const client = cieClients.find(c => c.client.id === pred.clientId)
     return {
@@ -388,8 +393,11 @@ export default function CIEPredictionsView() {
   const [selectedPattern, setSelectedPattern] = useState<PredictionPattern | null>(null)
   const [expandedPrediction, setExpandedPrediction] = useState<PredictionWithClient | null>(null)
 
-  const { data: liveCIEClients } = useCIEClients()
-  const cieClients = liveCIEClients || mockCieClients
+  const { data: liveCIEClients, loading } = useCIEClients()
+  const cieClients = liveCIEClients || []
+
+  // Loading guard AFTER all hook calls
+  if (loading && cieClients.length === 0) return <P1Loading message="Loading CIE data..." />
 
   // Get all predictions with client data
   const allPredictionsWithClients = useMemo(

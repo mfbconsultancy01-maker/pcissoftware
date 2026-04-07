@@ -2,8 +2,9 @@
 
 import { useState, useMemo } from 'react'
 import { useCIEClients } from '@/lib/useCIEData'
-import { cieClients as mockCieClients, pciscomSignals, DIMENSION_META, type PCISCOMSignal } from '@/lib/cieData'
-import { signals, type Signal } from '@/lib/mockData'
+import { pciscomSignals, DIMENSION_META, type PCISCOMSignal } from '@/lib/cieData'
+import { type Signal } from '@/lib/mockData'
+import { P1Loading } from '@/components/P1Loading'
 import { ClientLink } from '../useWorkspaceNav'
 
 type SignalType = 'viewing' | 'inquiry' | 'meeting' | 'offer' | 'feedback' | 'referral' | 'financial' | 'lifecycle'
@@ -201,12 +202,16 @@ function SignalDetailOverlay({
 // ── Main Component ──────────────────────────────────────────────────────
 
 export default function CIESignalsView() {
-  const { data: liveCIEClients } = useCIEClients()
-  const cieClients = liveCIEClients || mockCieClients
+  const { data: liveCIEClients, loading } = useCIEClients()
+  const cieClients = liveCIEClients || []
+  const signals: Signal[] = []
 
   const [selectedTypes, setSelectedTypes] = useState<SignalType[]>([])
   const [pciscomOnly, setPciscomOnly] = useState(false)
   const [expandedSignal, setExpandedSignal] = useState<(Signal & { client: { id: string; name: string } }) | null>(null)
+
+  // Loading guard AFTER all hook calls
+  if (loading && cieClients.length === 0) return <P1Loading message="Loading CIE data..." />
 
   const allSignals = useMemo(() => {
     const crmSignals = signals

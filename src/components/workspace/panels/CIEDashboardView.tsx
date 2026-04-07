@@ -2,7 +2,6 @@
 
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import {
-  cieClients as mockCieClients,
   ARCHETYPES,
   DIMENSION_META,
   pciscomSignals,
@@ -10,13 +9,11 @@ import {
   type Archetype,
 } from '@/lib/cieData'
 import {
-  predictions,
-  signals,
-  engagementMetrics,
   DEAL_STAGES,
   type EngagementStatus,
   type PredictionPattern,
 } from '@/lib/mockData'
+import { P1Loading } from '@/components/P1Loading'
 import { useCIEClients, useMorningBriefing, useCIEAgentStatus, getCIESourceLabel, getCIESourceColor } from '@/lib/useCIEData'
 import { p1Api } from '@/lib/api'
 import { useWorkspaceNav, ClientLink } from '../useWorkspaceNav'
@@ -782,7 +779,7 @@ function CIEBottomRow() {
 
   // Latest signals
   const latestSignals = useMemo(() =>
-    signals
+    ([] as any[])
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
       .slice(0, 5),
   [])
@@ -936,8 +933,12 @@ export default function CIEDashboardView(): React.ReactElement {
   // ── Live Data Hook: replaces mock cieClients with real backend data ────
   const liveData = useCIEClients()
   const agentStatus = useCIEAgentStatus()
-  const cieClients = liveData.data || mockCieClients
+  const cieClients = liveData.data || []
   const dataSource = liveData.source
+
+  if (liveData.loading && cieClients.length === 0) {
+    return <P1Loading message="Loading CIE intelligence..." />
+  }
 
   return (
     <CIEDataContext.Provider value={cieClients}>

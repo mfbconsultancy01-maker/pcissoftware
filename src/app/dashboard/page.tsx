@@ -5,20 +5,20 @@ import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { useWorkspaceSafe, PanelType } from '@/components/workspace/WorkspaceProvider'
 import { usePlatformKey } from '@/lib/platform'
+import { P1Loading } from '@/components/P1Loading'
+import { useCIEClients } from '@/lib/useCIEData'
+import { useAdvisorDashboard, useForgeAlerts } from '@/lib/useForgeData'
+import { useScoutAreas } from '@/lib/useScoutData'
 import {
   clients,
-  engagementMetrics,
-  matches,
-  matchStages,
   properties,
+  engagementMetrics,
   recommendations,
-  predictions,
-  signals,
+  matchStages,
   areaMetrics,
   intelFeed,
   macroIndicators,
   momentumSignals,
-  advisorPerformance,
   nextTouches,
   marketMetrics,
   DEAL_STAGES,
@@ -445,22 +445,22 @@ function LatestNewsFeed() {
 // TOP STATS BAR
 // ═══════════════════════════════════════════════════════════════════════════
 
-function StatsBar() {
+function StatsBar({ cieClients }: { cieClients: ReturnType<typeof useCIEClients> }) {
   const stats = useMemo(() => {
-    const totalPortfolio = clients.reduce((s, c) => s + c.financialProfile.portfolioValue, 0)
-    const uhnw = clients.filter(c => c.type === 'UHNW').length
-    const activeDeals = clients.filter(c => ['Viewing', 'Offer Made', 'Negotiation'].includes(c.dealStage)).length
-    const actNow = recommendations.filter(r => r.urgency === 'Act').length
-    const hotPred = predictions.filter(p => p.confidence >= 70).length
-    const avgEng = Math.round(engagementMetrics.reduce((s, e) => s + e.engagementScore, 0) / engagementMetrics.length)
-    return { totalPortfolio, uhnw, activeDeals, actNow, hotPred, avgEng }
-  }, [])
+    const totalClients = cieClients.data?.length || 0
+    const uhnw = cieClients.data?.filter(c => c.client.type === 'UHNW').length || 0
+    const activeDeals = cieClients.data?.filter(c => ['Viewing', 'Offer Made', 'Negotiation'].includes(c.client.dealStage)).length || 0
+    const avgEng = 0
+    const actNow = 0
+    const hotPred = 0
+    return { totalClients, uhnw, activeDeals, actNow, hotPred, avgEng }
+  }, [cieClients.data])
 
   return (
     <div className="flex items-center gap-6 text-[10px]">
       <div className="flex items-center gap-1.5">
         <span className="text-pcis-text-muted">Clients:</span>
-        <span className="font-semibold text-pcis-gold" style={{ fontFamily: "'Playfair Display', serif" }}>{clients.length}</span>
+        <span className="font-semibold text-pcis-gold" style={{ fontFamily: "'Playfair Display', serif" }}>{stats.totalClients}</span>
       </div>
       <div className="w-px h-3 bg-pcis-border/30" />
       <div className="flex items-center gap-1.5">
@@ -491,15 +491,31 @@ function StatsBar() {
 // ENGINE GATEWAY CARDS
 // ═══════════════════════════════════════════════════════════════════════════
 
-function EngineCards() {
+function EngineCards({ cieClients, areas, dashboard }: {
+  cieClients: ReturnType<typeof useCIEClients>
+  areas: ReturnType<typeof useScoutAreas>
+  dashboard: ReturnType<typeof useAdvisorDashboard>
+}) {
   const router = useRouter()
   const ws = useWorkspaceSafe()
   const engStats = useMemo(() => ({
-    E1: { metric: `${clients.length} profiles`, sub: `Avg engagement: ${Math.round(engagementMetrics.reduce((s, e) => s + e.engagementScore, 0) / engagementMetrics.length)}` },
-    E2: { metric: `${properties.length} properties`, sub: `${areaMetrics.length} areas tracked` },
-    E3: { metric: `${matchStages.filter(m => m.stage !== 'Identified' && m.stage !== 'Closed').length} active`, sub: `${matches.length} total matches` },
-    E4: { metric: `${recommendations.filter(r => r.urgency === 'Act').length} urgent`, sub: `${recommendations.length} total actions` },
-  }), [])
+    E1: {
+      metric: `${cieClients.data?.length || 0} profiles`,
+      sub: `Avg engagement: ${cieClients.data && cieClients.data.length > 0 ? Math.round(cieClients.data.reduce((s, c) => s + (c.overallCIEScore || 0), 0) / cieClients.data.length) : 0}`
+    },
+    E2: {
+      metric: `${areas.data?.length || 0} areas`,
+      sub: `${areas.data?.length || 0} areas tracked`
+    },
+    E3: {
+      metric: `0 active`,
+      sub: `0 total matches`
+    },
+    E4: {
+      metric: `${dashboard.data?.overview.pendingAlerts || 0} alerts`,
+      sub: `${dashboard.data?.overview.urgentRecommendations || 0} recommendations`
+    },
+  }), [cieClients.data, areas.data, dashboard.data])
 
   const handleEngineClick = useCallback((e: typeof engineDefs[number]) => {
     if (ws) {
@@ -537,23 +553,20 @@ function EngineCards() {
 // CLIENT WATCHLIST
 // ═══════════════════════════════════════════════════════════════════════════
 
-function ClientWatchlist() {
+function ClientWatchlist({ cieClients }: { cieClients: ReturnType<typeof useCIEClients> }) {
   const router = useRouter()
 
   const list = useMemo(() => {
-    return engagementMetrics
-      .map(e => {
-        const c = clients.find(cl => cl.id === e.clientId)!
-        const pred = predictions.find(p => p.clientId === c.id)
-        return { client: c, eng: e, prediction: pred }
-      })
-      .sort((a, b) => {
-        const aS = (a.prediction ? a.prediction.confidence : 0) + (a.eng.status === 'cooling' || a.eng.status === 'cold' ? 50 : 0) + a.eng.readinessScore * 30
-        const bS = (b.prediction ? b.prediction.confidence : 0) + (b.eng.status === 'cooling' || b.eng.status === 'cold' ? 50 : 0) + b.eng.readinessScore * 30
-        return bS - aS
-      })
+    if (!cieClients.data || cieClients.data.length === 0) return []
+    return cieClients.data
+      .map(c => ({
+        client: c.client,
+        score: c.overallCIEScore,
+        topDimension: c.topDimensions?.[0]?.dimension || 'N/A'
+      }))
+      .sort((a, b) => b.score - a.score)
       .slice(0, 10)
-  }, [])
+  }, [cieClients.data])
 
   return (
     <Panel>
@@ -573,13 +586,13 @@ function ClientWatchlist() {
             </tr>
           </thead>
           <tbody>
-            {list.map(({ client, eng, prediction }, idx) => (
+            {list.map(({ client, score, topDimension }, idx) => (
               <tr key={client.id}
                 className="border-b border-pcis-border/10 hover:bg-pcis-gold/[0.03] cursor-pointer transition-colors"
                 onClick={() => router.push(`/clients?id=${client.id}`)}>
                 <td className="py-2 px-4">
                   <div className="flex items-center gap-2">
-                    <div className="w-[5px] h-[5px] rounded-full" style={{ backgroundColor: statusMap[eng.status].color }} />
+                    <div className="w-[5px] h-[5px] rounded-full bg-pcis-gold/40" />
                     <span className="text-white/70 font-medium">{client.name}</span>
                   </div>
                 </td>
@@ -590,39 +603,31 @@ function ClientWatchlist() {
                   </span>
                 </td>
                 <td className="py-2 px-2 text-center">
-                  <span className="text-[9px] font-medium" style={{ color: statusMap[eng.status].color }}>
-                    {statusMap[eng.status].label}
+                  <span className="text-[9px] font-medium text-pcis-gold/60">
+                    Active
                   </span>
                 </td>
                 <td className="py-2 px-2">
                   <div className="flex items-center gap-1.5 justify-center">
                     <div className="w-12 h-[4px] bg-white/[0.04] rounded-full overflow-hidden">
                       <div className="h-full rounded-full" style={{
-                        width: `${eng.engagementScore}%`,
-                        backgroundColor: eng.engagementScore >= 60 ? '#22c55e' : eng.engagementScore >= 40 ? '#f59e0b' : '#ef4444',
+                        width: `${score}%`,
+                        backgroundColor: score >= 60 ? '#22c55e' : score >= 40 ? '#f59e0b' : '#ef4444',
                       }} />
                     </div>
                     <span className="text-[9px] font-mono" style={{
-                      color: eng.engagementScore >= 60 ? '#22c55e' : eng.engagementScore >= 40 ? '#f59e0b' : '#ef4444',
-                    }}>{eng.engagementScore}</span>
+                      color: score >= 60 ? '#22c55e' : score >= 40 ? '#f59e0b' : '#ef4444',
+                    }}>{score}</span>
                   </div>
                 </td>
                 <td className="py-2 px-2">
                   <span className="text-[9px]" style={{ color: dealStageColors[client.dealStage] }}>{client.dealStage}</span>
                 </td>
                 <td className="py-2 px-2">
-                  {prediction ? (
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-white/40 text-[9px]">{prediction.pattern}</span>
-                      <span className="text-[8px] font-mono px-1 py-[1px] rounded"
-                        style={{ backgroundColor: prediction.confidence >= 75 ? 'rgba(34,197,94,0.1)' : 'rgba(245,158,11,0.08)', color: prediction.confidence >= 75 ? '#22c55e' : '#f59e0b' }}>
-                        {prediction.confidence}%
-                      </span>
-                    </div>
-                  ) : <span className="text-pcis-text-muted/30">—</span>}
+                  <span className="text-white/40 text-[9px]">{topDimension}</span>
                 </td>
                 <td className="py-2 px-4 text-right">
-                  <span className="text-pcis-text-secondary text-[9px] font-mono">{fmt(client.financialProfile.budgetMax)}</span>
+                  <span className="text-pcis-text-secondary text-[9px] font-mono">—</span>
                 </td>
               </tr>
             ))}
@@ -874,6 +879,9 @@ export default function DashboardPage() {
   const router = useRouter()
   const ws = useWorkspaceSafe()
   const pk = usePlatformKey()
+  const cieClients = useCIEClients()
+  const scoutAreas = useScoutAreas()
+  const advisorDashboard = useAdvisorDashboard()
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -900,7 +908,7 @@ export default function DashboardPage() {
 
       {/* Stats Bar */}
       <div className="flex items-center justify-between">
-        <StatsBar />
+        <StatsBar cieClients={cieClients} />
         <button onClick={() => setCmdOpen(true)}
           className="flex items-center gap-2 text-[10px] text-pcis-text-muted hover:text-pcis-text-secondary transition-colors">
           <span>Search</span>
@@ -909,13 +917,13 @@ export default function DashboardPage() {
       </div>
 
       {/* Engine Gateway Cards */}
-      <EngineCards />
+      <EngineCards cieClients={cieClients} areas={scoutAreas} dashboard={advisorDashboard} />
 
       {/* Portfolio Health + Pipeline + Latest News */}
       <PortfolioHealth />
 
       {/* Client Watchlist Table */}
-      <ClientWatchlist />
+      <ClientWatchlist cieClients={cieClients} />
 
       {/* Bottom: Matches | Actions | Intel | Market */}
       <BottomRow />

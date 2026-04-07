@@ -4,11 +4,11 @@ import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { escapeHtml } from '@/lib/sanitize'
 import { useCIEClients } from '@/lib/useCIEData'
 import {
-  cieClients as mockCieClients,
   ARCHETYPES,
   type CIEClient,
   type Archetype,
 } from '@/lib/cieData'
+import { P1Loading } from '@/components/P1Loading'
 import {
   DEAL_STAGES,
   dealStageColors,
@@ -87,8 +87,8 @@ const getEngagementColor = (status: string): string => {
 
 export default function CIEMapView(): React.ReactElement {
   const nav = useWorkspaceNav()
-  const { data: liveCIEClients } = useCIEClients()
-  const cieClients = liveCIEClients || mockCieClients
+  const { data: liveCIEClients, loading } = useCIEClients()
+  const cieClients = liveCIEClients || []
 
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MaplibreGL.Map | null>(null)
@@ -98,6 +98,10 @@ export default function CIEMapView(): React.ReactElement {
   const [mapReady, setMapReady] = useState(false)
   const [hoveredClient, setHoveredClient] = useState<CIEClient | null>(null)
   const [selectedClient, setSelectedClient] = useState<CIEClient | null>(null)
+
+  if (!liveCIEClients && loading) {
+    return <P1Loading message="Loading..." />
+  }
 
   const displayClient = hoveredClient || selectedClient
 

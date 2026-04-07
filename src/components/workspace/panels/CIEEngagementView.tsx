@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { cieClients as mockCieClients, type CIEClient } from '@/lib/cieData'
+import { type CIEClient } from '@/lib/cieData'
 import { useCIEClients, getCIESourceLabel, getCIESourceColor } from '@/lib/useCIEData'
+import { P1Loading } from '@/components/P1Loading'
 import { ClientLink } from '../useWorkspaceNav'
 
 type EngagementStatus = 'thriving' | 'active' | 'cooling' | 'cold' | 'dormant'
@@ -29,8 +30,12 @@ export default function CIEEngagementView() {
   const [selectedStatus, setSelectedStatus] = useState<EngagementStatus | 'all'>('all')
   const [sortBy, setSortBy] = useState<SortKey>('engagementScore')
 
-  const { data: liveCIEClients, source: dataSource } = useCIEClients()
-  const cieClients = liveCIEClients || mockCieClients
+  const { data: liveCIEClients, loading, source: dataSource } = useCIEClients()
+  const cieClients = liveCIEClients || []
+
+  if (!liveCIEClients && loading) {
+    return <P1Loading message="Loading..." />
+  }
 
   const summary = useMemo(() => {
     if (!cieClients || cieClients.length === 0) {

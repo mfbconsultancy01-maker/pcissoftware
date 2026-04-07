@@ -2,13 +2,13 @@
 
 import React, { useState, useMemo } from 'react'
 import {
-  cieClients as mockCieClients,
   ARCHETYPES,
   DIMENSION_META,
   type CIEClient,
   type Archetype,
 } from '@/lib/cieData'
 import { useCIEClients, getCIESourceLabel, getCIESourceColor } from '@/lib/useCIEData'
+import { P1Loading } from '@/components/P1Loading'
 import { type EngagementStatus } from '@/lib/mockData'
 import { useWorkspaceNav, ClientLink } from '../useWorkspaceNav'
 
@@ -52,13 +52,17 @@ const engOrder: Record<string, number> = { thriving: 5, active: 4, cooling: 3, c
 
 export default function CIEGridView(): React.ReactElement {
   const nav = useWorkspaceNav()
-  const { data: liveCIEClients, source: dataSource } = useCIEClients()
-  const cieClients = liveCIEClients || mockCieClients
+  const { data: liveCIEClients, loading, source: dataSource } = useCIEClients()
+  const cieClients = liveCIEClients || []
   const [sortField, setSortField] = useState<SortField>('cie-score')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [filterArchetype, setFilterArchetype] = useState<FilterArchetype>('all')
   const [filterEngagement, setFilterEngagement] = useState<FilterEngagement>('all')
   const [search, setSearch] = useState('')
+
+  if (!liveCIEClients && loading) {
+    return <P1Loading message="Loading..." />
+  }
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {

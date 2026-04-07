@@ -5,13 +5,47 @@ import { escapeHtml } from '@/lib/sanitize'
 import ClientCard from '@/components/ClientCard'
 import ClientDetailPanel from '@/components/ClientDetailPanel'
 import {
-  clients, cognitiveProfiles, engagementMetrics, predictions, signals,
-  matches, recommendations, relationships, lifecycleData,
-  getProfile, getEngagement, getClientPredictions, getClientRelationships,
-  getClientSignals,
-  DealStage, DEAL_STAGES, dealStageColors, getNextTouch, getOverdueClients, getPipelineStats, nextTouches,
+  DealStage, DEAL_STAGES, dealStageColors,
   type Client, type EngagementStatus, type EngagementMetrics as EngMetrics,
+  type CognitiveProfile, type Prediction, type Signal, type Match,
+  type Recommendation, type Relationship, type LifecycleData, type NextTouch,
 } from '@/lib/mockData'
+import { useCIEClients } from '@/lib/useCIEData'
+import { P1Loading, P1EmptyState, P1ErrorState } from '@/components/P1Loading'
+
+// ============================================================
+// LIVE DATA LAYER — replaces mock data imports
+// ============================================================
+// Module-level stores populated by ClientsPage from CIE hook.
+// Sub-components read from these via the shim functions below.
+
+let clients: Client[] = []
+const _engagementMap = new Map<string, EngMetrics>()
+const _profileMap = new Map<string, CognitiveProfile>()
+
+// Shim functions (replace mock helpers — all sub-components use these)
+function getEngagement(id: string): EngMetrics | undefined {
+  return _engagementMap.get(id)
+}
+function getProfile(id: string): CognitiveProfile | undefined {
+  return _profileMap.get(id)
+}
+function getClientPredictions(_id: string): Prediction[] { return [] }
+function getClientRelationships(_id: string): Relationship[] { return [] }
+function getClientSignals(_id: string): Signal[] { return [] }
+function getNextTouch(_id: string): NextTouch | undefined { return undefined }
+function getOverdueClients(): { client: Client; daysOverdue: number }[] { return [] }
+function getPipelineStats(): Record<string, number> { return {} }
+
+// Empty arrays for features not yet provided by CIE backend
+const predictions: Prediction[] = []
+const signals: Signal[] = []
+const matches: Match[] = []
+const recommendations: Recommendation[] = []
+const relationships: Relationship[] = []
+const lifecycleData: LifecycleData[] = []
+const cognitiveProfiles: CognitiveProfile[] = []
+const engagementMetrics: EngMetrics[] = []
 
 // ============================================================
 // FILTER TYPES
@@ -1489,8 +1523,8 @@ function GroupedGridView({
                   : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
               }`}>
                 {sectionCards.map((client) => {
-                  const profile = getProfile(client.id) || cognitiveProfiles[0]
-                  const engagement = getEngagement(client.id) || engagementMetrics[0]
+                  const profile = getProfile(client.id) || { clientId: client.id, scores: [], summary: '', keyTraits: [], approachStrategy: '', riskFactors: [], communicationTips: [], lastComputed: new Date().toISOString() }
+                  const engagement = getEngagement(client.id) || { clientId: client.id, status: 'active' as const, momentum: 'stable' as const, currentVelocity: 0, baselineVelocity: 1, decayRate: 0, daysSinceContact: 0, expectedInterval: 7, engagementScore: 50, readinessScore: 0.5 }
                   const clientPredictions = getClientPredictions(client.id)
                   const clientSignals = getClientSignals(client.id)
 
@@ -2051,6 +2085,69 @@ export default function ClientsPage() {
   const [detailClient, setDetailClient] = useState<Client | null>(null)
   const [stageOverrides, setStageOverrides] = useState<Record<string, DealStage>>({})
 
+  // ── CIE Live Data ──────────────────────────────────────────
+  const { data: cieClients, loading, error, refetch } = useCIEClients()
+
+  // Populate module-level stores from CIE hook data
+  // (sub-components read via getEngagement/getProfile shims)
+  useMemo(() => {
+    _engagementMap.clear()
+    _profileMap.clear()
+
+    if (!cieClients || cieClients.length === 0) {
+      clients = []
+      return
+    }
+
+    clients = cieClients.map(cc => {
+      const score = cc.overallCIEScore
+      const status: EngagementStatus =
+        score >= 75 ? 'thriving' :
+        score >= 55 ? 'active' :
+        score >= 35 ? 'cooling' :
+        score >= 15 ? 'cold' : 'dormant'
+
+      _engagementMap.set(cc.client.id, {
+        clientId: cc.client.id,
+        status,
+        momentum: 'stable' as const,
+        currentVelocity: cc.signalCount,
+        baselineVelocity: Math.max(1, cc.signalCount),
+        decayRate: score < 30 ? 50 : score < 50 ? 25 : 0,
+        daysSinceContact: 0,
+        expectedInterval: 7,
+        engagementScore: score,
+        readinessScore: score / 100,
+      })
+
+      if (cc.profile) {
+        _profileMap.set(cc.client.id, cc.profile)
+      }
+
+      return cc.client
+    })
+  }, [cieClients])
+
+  // ── Loading / Error / Empty guards ─────────────────────────
+  if (loading) {
+    return <P1Loading message="Loading client intelligence..." />
+  }
+
+  if (error) {
+    return <P1ErrorState message={error} onRetry={refetch} />
+  }
+
+  if (clients.length === 0) {
+    return (
+      <P1EmptyState
+        icon="👥"
+        title="No Clients Yet"
+        description="Add clients through the CIE engine to see cognitive profiles and intelligence here."
+        action={{ label: 'Refresh', onClick: refetch }}
+      />
+    )
+  }
+
   function handleStageChange(clientId: string, newStage: DealStage) {
     setStageOverrides(prev => ({ ...prev, [clientId]: newStage }))
   }
@@ -2072,7 +2169,7 @@ export default function ClientsPage() {
     }
 
     return result
-  }, [activeFilter, searchQuery])
+  }, [activeFilter, searchQuery, cieClients])
 
   // Build grouped sections for grid view
   const sections = useMemo(() => buildSections(filteredClients), [filteredClients])
@@ -2081,10 +2178,24 @@ export default function ClientsPage() {
   const detailData = useMemo(() => {
     if (!detailClient) return null
     const id = detailClient.id
+
+    // Fallback profile/engagement for detail panel (required props)
+    const fallbackProfile: CognitiveProfile = {
+      clientId: id, scores: [], summary: '', keyTraits: [],
+      approachStrategy: '', riskFactors: [], communicationTips: [],
+      lastComputed: new Date().toISOString(),
+    }
+    const fallbackEngagement: EngMetrics = {
+      clientId: id, status: 'active', momentum: 'stable',
+      currentVelocity: 0, baselineVelocity: 1, decayRate: 0,
+      daysSinceContact: 0, expectedInterval: 7,
+      engagementScore: 50, readinessScore: 0.5,
+    }
+
     return {
       client: detailClient,
-      profile: getProfile(id) || cognitiveProfiles[0],
-      engagement: getEngagement(id) || engagementMetrics[0],
+      profile: getProfile(id) || fallbackProfile,
+      engagement: getEngagement(id) || fallbackEngagement,
       predictions: getClientPredictions(id),
       signals: getClientSignals(id),
       matches: matches.filter(m => m.clientId === id),
@@ -2092,7 +2203,7 @@ export default function ClientsPage() {
       relationships: getClientRelationships(id),
       lifecycle: lifecycleData.find(l => l.clientId === id),
     }
-  }, [detailClient])
+  }, [detailClient, cieClients])
 
   function handleSelectClient(client: Client) {
     setSelectedClientId(client.id)

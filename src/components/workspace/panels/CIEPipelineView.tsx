@@ -3,7 +3,6 @@
 import React, { useState, useMemo } from 'react'
 import { useCIEClients } from '@/lib/useCIEData'
 import {
-  cieClients as mockCieClients,
   ARCHETYPES,
   type CIEClient,
   type Archetype,
@@ -11,10 +10,9 @@ import {
 import {
   DEAL_STAGES,
   dealStageColors,
-  getNextTouch,
-  getPipelineStats,
   type DealStage,
 } from '@/lib/mockData'
+import { P1Loading } from '@/components/P1Loading'
 import { useWorkspaceNav, ClientLink } from '../useWorkspaceNav'
 
 // ============================================================================
@@ -49,13 +47,15 @@ const getEngagementColor = (status: string): string => {
 }
 
 export default function CIEPipelineView(): React.ReactElement {
-  const { data: liveCIEClients } = useCIEClients()
-  const cieClients = liveCIEClients || mockCieClients
+  const { data: liveCIEClients, loading } = useCIEClients()
+  const cieClients = liveCIEClients || []
 
   const nav = useWorkspaceNav()
-  const pipelineStats = useMemo(() => getPipelineStats(), [])
   const [dragClientId, setDragClientId] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<DealStage | null>(null)
+
+  // Loading guard AFTER all hook calls
+  if (loading && cieClients.length === 0) return <P1Loading message="Loading CIE data..." />
 
   // Group CIE clients by deal stage
   const stageGroups = useMemo(() => {
@@ -135,16 +135,7 @@ export default function CIEPipelineView(): React.ReactElement {
                 {/* Client cards */}
                 <div className="flex-1 space-y-2 overflow-y-auto min-h-0 pr-1">
                   {stageClients.map(cie => {
-                    const touch = getNextTouch(cie.client.id)
                     const archConfig = ARCHETYPES.find(a => a.id === cie.archetype)
-
-                    let touchColor = '#22c55e'
-                    let touchLabel = ''
-                    if (touch) {
-                      const diffDays = Math.ceil((new Date(touch.date).getTime() - Date.now()) / 86400000)
-                      touchColor = diffDays < 0 ? '#ef4444' : diffDays === 0 ? '#d4a574' : diffDays <= 2 ? '#f59e0b' : '#22c55e'
-                      touchLabel = diffDays < 0 ? `${Math.abs(diffDays)}d overdue` : diffDays === 0 ? 'Today' : `in ${diffDays}d`
-                    }
 
                     return (
                       <button
@@ -194,13 +185,6 @@ export default function CIEPipelineView(): React.ReactElement {
                           AED {(cie.client.financialProfile.portfolioValue / 1_000_000).toFixed(0)}M
                         </p>
 
-                        {/* Next touch */}
-                        {touch && (
-                          <div className="flex items-center justify-between mt-1.5">
-                            <span className="text-[7px] text-pcis-text-muted uppercase">Next</span>
-                            <span className="text-[7px] font-mono font-semibold" style={{ color: touchColor }}>{touchLabel}</span>
-                          </div>
-                        )}
 
                         {/* CIE engagement bar */}
                         <div className="mt-2 h-1 bg-white/[0.04] rounded-full overflow-hidden">
