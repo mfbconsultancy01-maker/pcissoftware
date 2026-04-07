@@ -309,7 +309,7 @@ export async function POST(request: NextRequest) {
     if (!isGreeting && p1OrgId) {
       const engines = classifyEngines(userQuestion)
       if (engines.size > 0) {
-        console.log(`[PA] Consulting engines: ${[...engines].join(', ')} for: "${userQuestion.substring(0, 60)}..."`)
+        console.log(`[PA] Consulting engines: ${Array.from(engines).join(', ')} for: "${userQuestion.substring(0, 60)}..."`)
         engineIntelligence = await gatherEngineIntelligence(userQuestion, engines, p1OrgId)
       }
     }
@@ -405,7 +405,7 @@ CURRENT CONTEXT:
       content: userContent,
       tokens: (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0),
       isFeedback,
-      enginesConsulted: isGreeting ? [] : [...classifyEngines(userQuestion)],
+      enginesConsulted: isGreeting ? [] : Array.from(classifyEngines(userQuestion)),
     })
   } catch (error) {
     console.error('PA route error:', error)
