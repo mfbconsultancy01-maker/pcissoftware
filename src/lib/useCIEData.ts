@@ -2,34 +2,24 @@
 // PCIS CIE Engine — Live Data Hooks
 // ============================================================================
 // React hooks that connect CIE frontend panels to the live CIE Agent backend.
-// Replaces mock data with real cognitive profiles, signals, and narratives.
 //
 // Data flow:
 //   P1 Backend (CIE Agent) → Next.js Proxy → These Hooks → CIE Panels
 //
-// Fallback: If backend is unreachable, falls back to mock data from mockData.ts
+// No mock/sample data fallback — shows loading or empty states only.
 // ============================================================================
 
 import { useState, useEffect, useCallback } from 'react'
 import { p1Api } from './api'
 import {
-  clients as mockClients,
-  cognitiveProfiles as mockProfiles,
-  engagementMetrics as mockEngagement,
-  predictions as mockPredictions,
-  signals as mockSignals,
   type Client,
   type CognitiveProfile,
   type CognitiveScore,
-  type EngagementMetrics,
-  type Prediction,
-  type Signal,
 } from './mockData'
 import {
   type CIEClient,
   type Archetype,
   DIMENSION_META,
-  buildCIEClients,
 } from './cieData'
 
 // ============================================================================
@@ -97,7 +87,7 @@ interface CIEAgentStatus {
 }
 
 // ============================================================================
-// useCIEClients — Main hook replacing buildCIEClients() with live data
+// useCIEClients — Main hook for live client data
 // ============================================================================
 
 export function useCIEClients(): DataState<CIEClient[]> & { refetch: () => void } {
@@ -105,14 +95,13 @@ export function useCIEClients(): DataState<CIEClient[]> & { refetch: () => void 
     data: null,
     loading: true,
     error: null,
-    source: 'mock',
+    source: 'live',
   })
 
   const fetch = useCallback(async () => {
     setState((prev) => ({ ...prev, loading: true }))
 
     try {
-      // Try live backend first
       const response = await p1Api.getClients()
 
       if (response?.success && response.data?.length > 0) {
@@ -189,17 +178,23 @@ export function useCIEClients(): DataState<CIEClient[]> & { refetch: () => void 
         })
         return
       }
-    } catch (err) {
-      console.warn('[CIE] Backend unavailable, falling back to mock data:', err)
-    }
 
-    // Fallback to mock data
-    setState({
-      data: buildCIEClients(),
-      loading: false,
-      error: null,
-      source: 'mock',
-    })
+      // Backend returned empty or no data — show empty state, not mock
+      setState({
+        data: [],
+        loading: false,
+        error: null,
+        source: 'live',
+      })
+    } catch (err: any) {
+      console.warn('[CIE] Backend unavailable:', err)
+      setState({
+        data: [],
+        loading: false,
+        error: 'Unable to connect to CIE backend',
+        source: 'live',
+      })
+    }
   }, [])
 
   useEffect(() => { fetch() }, [fetch])
@@ -216,13 +211,13 @@ export function useClientNarrative(clientId: string | null): DataState<ClientNar
     data: null,
     loading: false,
     error: null,
-    source: 'mock',
+    source: 'live',
   })
 
   useEffect(() => {
     if (!clientId) return
 
-    setState({ data: null, loading: true, error: null, source: 'mock' })
+    setState({ data: null, loading: true, error: null, source: 'live' })
 
     p1Api.getClientNarrative(clientId)
       .then((response) => {
@@ -238,7 +233,7 @@ export function useClientNarrative(clientId: string | null): DataState<ClientNar
             data: null,
             loading: false,
             error: 'No narrative available',
-            source: 'mock',
+            source: 'live',
           })
         }
       })
@@ -247,7 +242,7 @@ export function useClientNarrative(clientId: string | null): DataState<ClientNar
           data: null,
           loading: false,
           error: err.message,
-          source: 'mock',
+          source: 'live',
         })
       })
   }, [clientId])
@@ -264,7 +259,7 @@ export function useMorningBriefing(): DataState<MorningBriefing> & { refresh: ()
     data: null,
     loading: true,
     error: null,
-    source: 'mock',
+    source: 'live',
   })
 
   const fetch = useCallback(async () => {
@@ -289,7 +284,7 @@ export function useMorningBriefing(): DataState<MorningBriefing> & { refresh: ()
       data: null,
       loading: false,
       error: 'Briefing not available',
-      source: 'mock',
+      source: 'live',
     })
   }, [])
 
@@ -307,7 +302,7 @@ export function useAtRiskClients(): DataState<AtRiskClient[]> {
     data: null,
     loading: true,
     error: null,
-    source: 'mock',
+    source: 'live',
   })
 
   useEffect(() => {
@@ -316,11 +311,11 @@ export function useAtRiskClients(): DataState<AtRiskClient[]> {
         if (response?.success && response.data) {
           setState({ data: response.data, loading: false, error: null, source: 'live' })
         } else {
-          setState({ data: [], loading: false, error: null, source: 'mock' })
+          setState({ data: [], loading: false, error: null, source: 'live' })
         }
       })
       .catch(() => {
-        setState({ data: [], loading: false, error: null, source: 'mock' })
+        setState({ data: [], loading: false, error: null, source: 'live' })
       })
   }, [])
 
@@ -336,7 +331,7 @@ export function useCIEAgentStatus(): DataState<CIEAgentStatus> & { refresh: () =
     data: null,
     loading: true,
     error: null,
-    source: 'mock',
+    source: 'live',
   })
 
   const fetch = useCallback(async () => {
@@ -346,7 +341,7 @@ export function useCIEAgentStatus(): DataState<CIEAgentStatus> & { refresh: () =
         setState({ data: response.data, loading: false, error: null, source: 'live' })
       }
     } catch {
-      setState({ data: null, loading: false, error: 'Agent status unavailable', source: 'mock' })
+      setState({ data: null, loading: false, error: 'Agent status unavailable', source: 'live' })
     }
   }, [])
 
@@ -364,27 +359,24 @@ export function useClientTimeline(clientId: string | null): DataState<any[]> {
     data: null,
     loading: false,
     error: null,
-    source: 'mock',
+    source: 'live',
   })
 
   useEffect(() => {
     if (!clientId) return
 
-    setState({ data: null, loading: true, error: null, source: 'mock' })
+    setState({ data: null, loading: true, error: null, source: 'live' })
 
     p1Api.getClientTimeline(clientId)
       .then((response) => {
         if (response?.success && response.data) {
           setState({ data: response.data, loading: false, error: null, source: 'live' })
         } else {
-          // Fallback to mock signals
-          const mockSigs = mockSignals.filter((s) => s.clientId === clientId)
-          setState({ data: mockSigs, loading: false, error: null, source: 'mock' })
+          setState({ data: [], loading: false, error: null, source: 'live' })
         }
       })
       .catch(() => {
-        const mockSigs = mockSignals.filter((s) => s.clientId === clientId)
-        setState({ data: mockSigs, loading: false, error: null, source: 'mock' })
+        setState({ data: [], loading: false, error: null, source: 'live' })
       })
   }, [clientId])
 
@@ -396,11 +388,11 @@ export function useClientTimeline(clientId: string | null): DataState<any[]> {
 // ============================================================================
 
 export function getCIESourceLabel(source: DataSource): string {
-  return source === 'live' ? 'CIE AGENT LIVE' : 'SAMPLE DATA'
+  return source === 'live' ? 'CIE AGENT LIVE' : 'LOADING'
 }
 
 export function getCIESourceColor(source: DataSource): string {
-  return source === 'live' ? '#10B981' : '#F59E0B'
+  return source === 'live' ? '#10B981' : '#64748b'
 }
 
 // ============================================================================
