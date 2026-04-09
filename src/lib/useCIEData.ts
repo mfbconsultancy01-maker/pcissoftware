@@ -15,6 +15,8 @@ import {
   type Client,
   type CognitiveProfile,
   type CognitiveScore,
+  type DealStage,
+  DEAL_STAGES,
 } from './mockData'
 import {
   type CIEClient,
@@ -106,37 +108,44 @@ export function useCIEClients(): DataState<CIEClient[]> & { refetch: () => void 
 
       if (response?.success && response.data?.length > 0) {
         // Transform backend clients to CIEClient format
-        const cieClients: CIEClient[] = await Promise.all(
-          response.data.map(async (backendClient: any) => {
+        const cieResults = await Promise.all(
+          response.data.map(async (backendClient: any): Promise<CIEClient | null> => {
+            try {
             const profile = backendClient.cognitiveProfile
-            const scores: CognitiveScore[] = profile?.scores?.map((s: any) => ({
-              dimension: s.dimension?.name || s.dimensionId,
-              value: Math.round(Number(s.score) * 100),
-              confidence: Number(s.confidence),
+            const scores: CognitiveScore[] = (profile?.scores || []).map((s: any) => ({
+              dimension: s.dimension?.name || s.dimensionId || 'Unknown',
+              value: Math.round(Number(s.score || 0) * 100),
+              confidence: Number(s.confidence || 0),
               trend: (s.trend || 'stable').toLowerCase() as 'rising' | 'falling' | 'stable',
-            })) || []
+            }))
 
             const archetype = deriveArchetypeFromScores(scores)
             const sorted = [...scores].sort((a, b) => b.value - a.value)
 
+            // Map backend status to a valid DealStage for the pipeline view
+            const rawStage = backendClient.status || backendClient.dealStage || 'Lead In'
+            const dealStage: DealStage = DEAL_STAGES.includes(rawStage as DealStage)
+              ? (rawStage as DealStage)
+              : mapStatusToDealStage(rawStage)
+
             const client: Client = {
               id: backendClient.id,
-              name: `${backendClient.firstName} ${backendClient.lastName}`,
-              initials: `${backendClient.firstName?.[0] || ''}${backendClient.lastName?.[0] || ''}`,
+              name: `${backendClient.firstName || ''} ${backendClient.lastName || ''}`.trim() || 'Unknown',
+              initials: `${(backendClient.firstName || '?')[0]}${(backendClient.lastName || '?')[0]}`,
               type: mapTierToType(backendClient.tier),
               category: mapIntentToCategory(backendClient.investmentIntent),
               email: backendClient.email || '',
               phone: backendClient.phone || '',
               location: backendClient.cityOfResidence || 'Dubai',
-              onboardedAt: backendClient.createdAt,
+              onboardedAt: backendClient.createdAt || new Date().toISOString(),
               financialProfile: {
-                budgetMin: 0,
-                budgetMax: 0,
-                portfolioValue: 0,
+                budgetMin: Number(backendClient.budgetMin) || 0,
+                budgetMax: Number(backendClient.budgetMax) || 0,
+                portfolioValue: Number(backendClient.portfolioValue) || 0,
                 currency: 'AED',
               },
-              dealStage: 'Contacted' as any,
-              dealStageChangedAt: backendClient.updatedAt,
+              dealStage,
+              dealStageChangedAt: backendClient.updatedAt || new Date().toISOString(),
             }
 
             const cognitiveProfile: CognitiveProfile | null = scores.length > 0 ? {
@@ -167,8 +176,13 @@ export function useCIEClients(): DataState<CIEClient[]> & { refetch: () => void 
               overallCIEScore,
               signalCount: backendClient._count?.signals || 0,
             } as CIEClient
+            } catch (clientErr) {
+              console.error('[CIE] Failed to transform client:', backendClient?.id, clientErr)
+              return null
+            }
           })
         )
+        const cieClients: CIEClient[] = cieResults.filter((c): c is CIEClient => c !== null)
 
         setState({
           data: cieClients,
@@ -427,4 +441,15 @@ function mapIntentToCategory(intent: string | null): Client['category'] {
   if (intent === 'END_USE') return 'Lifestyle'
   if (intent === 'MIXED') return 'Portfolio Builder'
   return 'Lifestyle'
+}
+
+function mapStatusToDealStage(status: string): DealStage {
+  const s = (status || '').toLowerCase()
+  if (s.includes('won') || s.includes('closed') || s.includes('completed')) return 'Closed Won'
+  if (s.includes('negotiat')) return 'Negotiation'
+  if (s.includes('offer')) return 'Offer Made'
+  if (s.includes('view')) return 'Viewing'
+  if (s.includes('discover') || s.includes('qualif')) return 'Discovery'
+  // Default: all new/prospect/contacted clients go to Lead In
+  return 'Lead In'
 }

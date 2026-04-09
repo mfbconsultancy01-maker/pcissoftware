@@ -182,7 +182,7 @@ export default function CIEPipelineView(): React.ReactElement {
 
                         {/* Portfolio value */}
                         <p className="text-[9px] font-mono text-pcis-text-secondary mt-2">
-                          AED {(cie.client.financialProfile.portfolioValue / 1_000_000).toFixed(0)}M
+                          AED {((cie.client.financialProfile?.portfolioValue || 0) / 1_000_000).toFixed(0)}M
                         </p>
 
 

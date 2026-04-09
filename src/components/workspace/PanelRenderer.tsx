@@ -1,6 +1,6 @@
 'use client'
 
-import React, { Suspense, lazy } from 'react'
+import React, { Suspense, lazy, Component, type ErrorInfo, type ReactNode } from 'react'
 import { Panel, PanelType } from './WorkspaceProvider'
 
 // ============================================================================
@@ -108,15 +108,64 @@ function PanelSkeleton() {
 }
 
 // ---------------------------------------------------------------------------
+// Error Boundary — catches runtime crashes in any panel
+// ---------------------------------------------------------------------------
+
+interface ErrorBoundaryState { hasError: boolean; error: Error | null }
+
+class PanelErrorBoundary extends Component<{ children: ReactNode; panelLabel?: string }, ErrorBoundaryState> {
+  constructor(props: { children: ReactNode; panelLabel?: string }) {
+    super(props)
+    this.state = { hasError: false, error: null }
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error }
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error(`[PanelErrorBoundary] ${this.props.panelLabel || 'unknown'} crashed:`, error, info.componentStack)
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="h-full flex items-center justify-center p-6">
+          <div className="text-center max-w-sm">
+            <div className="text-2xl mb-3">⚠️</div>
+            <h3 className="text-sm font-semibold text-pcis-text mb-2">Panel Error</h3>
+            <p className="text-[10px] text-pcis-text-muted mb-3">
+              {this.props.panelLabel || 'This panel'} encountered an error.
+            </p>
+            <p className="text-[9px] font-mono text-red-400/70 bg-red-500/5 border border-red-500/10 rounded p-2 mb-3 break-all">
+              {this.state.error?.message || 'Unknown error'}
+            </p>
+            <button
+              onClick={() => this.setState({ hasError: false, error: null })}
+              className="text-[10px] px-3 py-1 rounded bg-pcis-gold/20 text-pcis-gold border border-pcis-gold/30 hover:bg-pcis-gold/30 transition-all"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Panel Content Wrapper
 // ---------------------------------------------------------------------------
 
-function PanelContent({ children }: { children: React.ReactNode }) {
+function PanelContent({ children, label }: { children: React.ReactNode; label?: string }) {
   return (
     <div className="h-full overflow-y-auto overflow-x-hidden p-4">
-      <Suspense fallback={<PanelSkeleton />}>
-        {children}
-      </Suspense>
+      <PanelErrorBoundary panelLabel={label}>
+        <Suspense fallback={<PanelSkeleton />}>
+          {children}
+        </Suspense>
+      </PanelErrorBoundary>
     </div>
   )
 }
@@ -458,7 +507,7 @@ export default function PanelRenderer({ panel }: { panel: Panel }) {
 
   if (panel.type === 'cie-grid') {
     return (
-      <PanelContent>
+      <PanelContent label="Client Grid">
         <CIEGridView />
       </PanelContent>
     )
@@ -497,7 +546,7 @@ export default function PanelRenderer({ panel }: { panel: Panel }) {
 
   if (panel.type === 'cie-pipeline') {
     return (
-      <PanelContent>
+      <PanelContent label="CIE Pipeline">
         <CIEPipelineView />
       </PanelContent>
     )
