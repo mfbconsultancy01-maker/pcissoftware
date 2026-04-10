@@ -1,14 +1,11 @@
 'use client'
 
-import React, { useState, useMemo } from 'react'
-import {
-  opportunities,
-  signalsSummary,
-  type Opportunity,
-} from '@/lib/signalsData'
+import React, { useState, useMemo, useEffect } from 'react'
+import { type Opportunity } from '@/lib/signalsData'
+import { getOpportunitiesCached } from '@/lib/scoutDataCache'
+import { AreaLink } from '../useWorkspaceNav'
 
 type OpportunityType = Opportunity['type']
-import { AreaLink } from '../useWorkspaceNav'
 
 type TypeFilter = 'all' | OpportunityType
 type ConfidenceFilter = 'all' | '>80%' | '>60%'
@@ -90,13 +87,80 @@ const getConfidenceColor = (confidence: number): string => {
   return 'bg-orange-500/30 text-orange-300'
 }
 
+/** Map backend opportunity data to frontend Opportunity shape */
+function mapBackendOpportunity(raw: any): Opportunity {
+  const prop = raw.property || {}
+  const scores = raw.scores || {}
+  const metrics = raw.metrics || {}
+  const priceAmount = parseFloat(prop.priceAmount) || 0
+  const sizeSqft = parseFloat(prop.sizeSqft) || 1
+  const pricePerSqft = priceAmount / sizeSqft
+  const avgComparable = metrics.comparableData?.avgPricePerSqft
+    ? parseFloat(metrics.comparableData.avgPricePerSqft)
+    : pricePerSqft * 1.1
+  const upside = avgComparable > 0
+    ? Math.round(((avgComparable - pricePerSqft) / pricePerSqft) * 1000) / 10
+    : 0
+
+  // Derive type from scores
+  let type: Opportunity['type'] = 'watch'
+  if (scores.overall >= 70) type = 'buy'
+  else if (scores.overall >= 50) type = 'hold'
+  else if (scores.overall < 30) type = 'sell'
+
+  return {
+    id: raw.propertyId || prop.id || '',
+    signalId: raw.propertyId || '',
+    type,
+    title: prop.title || 'Untitled Property',
+    area: prop.area || 'Unknown',
+    areaId: (prop.area || '').toLowerCase().replace(/\s+/g, '-'),
+    building: prop.developer || undefined,
+    propertyType: prop.type || 'Property',
+    currentPrice: Math.round(pricePerSqft),
+    targetPrice: Math.round(avgComparable),
+    upside,
+    confidence: scores.overall || 0,
+    timeHorizon: scores.overall >= 70 ? '6 months' : '12 months',
+    rationale: metrics.restorationPotential
+      ? `Yield: ${parseFloat(metrics.estimatedRentalYield || 0).toFixed(1)}% | Capital: ${parseFloat(metrics.capitalAppreciation || 0).toFixed(1)}% | Restoration: ${metrics.restorationPotential}`
+      : `Score: ${scores.overall}/100 | Undervalued: ${scores.undervalued}/100`,
+    risks: [
+      scores.undervalued < 50 ? 'May be fairly valued' : '',
+      parseFloat(metrics.capitalAppreciation || 0) < 5 ? 'Limited capital growth' : '',
+      prop.completionStatus === 'OffPlan' ? 'Off-plan completion risk' : '',
+    ].filter(Boolean),
+    clientFit: [
+      scores.rentalYield >= 70 ? 'Yield Investors' : '',
+      scores.appreciation >= 70 ? 'Growth Investors' : '',
+      scores.undervalued >= 80 ? 'Value Hunters' : '',
+      prop.completionStatus === 'OffPlan' ? 'Off-Plan Buyers' : '',
+    ].filter(Boolean),
+    status: 'active',
+    createdDate: new Date().toISOString(),
+  }
+}
+
 export default function OpportunityRadarView(): React.ReactElement {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
   const [confidenceFilter, setConfidenceFilter] = useState<ConfidenceFilter>('all')
   const [sortBy, setSortBy] = useState<SortBy>('upside')
+  const [liveOpportunities, setLiveOpportunities] = useState<Opportunity[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    getOpportunitiesCached().then((raw: any[]) => {
+      if (cancelled) return
+      const mapped = raw.map(mapBackendOpportunity)
+      setLiveOpportunities(mapped)
+      setLoading(false)
+    }).catch(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [])
 
   const filtered = useMemo(() => {
-    let result: Opportunity[] = opportunities.filter(o => o.status === 'active')
+    let result: Opportunity[] = liveOpportunities.filter(o => o.status === 'active')
 
     if (typeFilter !== 'all') {
       result = result.filter(o => o.type === typeFilter)
@@ -318,7 +382,16 @@ export default function OpportunityRadarView(): React.ReactElement {
           ))}
         </div>
 
-        {filtered.length === 0 && (
+        {loading && (
+          <div className="h-full flex items-center justify-center">
+            <div className="text-center space-y-2">
+              <div className="w-5 h-5 border-2 border-pcis-gold/30 border-t-pcis-gold rounded-full animate-spin mx-auto" />
+              <p className="text-white/40 text-[10px] uppercase tracking-wider">Loading opportunities...</p>
+            </div>
+          </div>
+        )}
+
+        {!loading && filtered.length === 0 && (
           <div className="h-full flex items-center justify-center">
             <div className="text-center space-y-2">
               <p className="text-white/40 text-[10px] uppercase tracking-wider">No opportunities match filters</p>
@@ -350,11 +423,11 @@ export default function OpportunityRadarView(): React.ReactElement {
           <div className="flex gap-2">
             <div className="text-right">
               <span className="text-white/40 uppercase tracking-wider block text-[7px]">Active Opps</span>
-              <span className="text-pcis-gold font-semibold text-[10px]">{signalsSummary.activeOpportunities}</span>
+              <span className="text-pcis-gold font-semibold text-[10px]">{liveOpportunities.filter(o => o.status === 'active').length}</span>
             </div>
             <div className="text-right">
-              <span className="text-white/40 uppercase tracking-wider block text-[7px]">Emerging</span>
-              <span className="text-pcis-gold font-semibold text-[10px]">{signalsSummary.emergingAreas}</span>
+              <span className="text-white/40 uppercase tracking-wider block text-[7px]">Buy Signals</span>
+              <span className="text-pcis-gold font-semibold text-[10px]">{liveOpportunities.filter(o => o.type === 'buy').length}</span>
             </div>
           </div>
         </div>

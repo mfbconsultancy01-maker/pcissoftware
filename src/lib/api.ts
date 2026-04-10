@@ -397,6 +397,18 @@ export const p1Api = {
     return data
   },
 
+  // ── Intel Dashboard ─────────────────────────────────────────────────────
+  getIntelDashboard: async () => {
+    const data = await p1Request('/api/intel/dashboard')
+    return data
+  },
+
+  // ── SCOUT: Macro Snapshot ──────────────────────────────────────────────
+  getMacroSnapshot: async () => {
+    const data = await p1Request('/api/scout-data/macro')
+    return data
+  },
+
   // ── Clients ─────────────────────────────────────────────────────────────
   getClients: async (params?: { status?: string; tier?: string }) => {
     const query = new URLSearchParams()

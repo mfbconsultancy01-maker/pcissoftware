@@ -106,6 +106,27 @@ const fetchers = {
     }
     return null
   },
+  opportunities: async () => {
+    const response = await p1Api.getOpportunities({ limit: 50 })
+    if (response?.success && response?.data && Array.isArray(response.data)) {
+      return response.data
+    }
+    return []
+  },
+  intelDashboard: async () => {
+    const response = await p1Api.getIntelDashboard()
+    if (response?.success && response?.data) {
+      return response.data
+    }
+    return null
+  },
+  macro: async () => {
+    const response = await p1Api.getMacroSnapshot()
+    if (response?.success && response?.data) {
+      return response.data
+    }
+    return null
+  },
 }
 
 // ── Background refresh loop ───────────────────────────────────────────────
@@ -146,6 +167,21 @@ export async function getSCOUTAnomaliesCached() {
 export async function getSCOUTMacroContextCached() {
   startBackgroundRefresh()
   return fetchWithDedup('scoutMacro', fetchers.scoutMacro)
+}
+
+export async function getOpportunitiesCached() {
+  startBackgroundRefresh()
+  return fetchWithDedup('opportunities', fetchers.opportunities)
+}
+
+export async function getIntelDashboardCached() {
+  startBackgroundRefresh()
+  return fetchWithDedup('intelDashboard', fetchers.intelDashboard)
+}
+
+export async function getMacroCached() {
+  startBackgroundRefresh()
+  return fetchWithDedup('macro', fetchers.macro)
 }
 
 /** Force-clear all cached data (e.g., after a scrape run completes) */

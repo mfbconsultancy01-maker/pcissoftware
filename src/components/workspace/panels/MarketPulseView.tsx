@@ -1,30 +1,94 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import {
-  marketPulse,
-  signalsSummary,
-  marketSignals,
-  areaHeatMetrics,
   type MarketPulse,
-  type MarketSignal,
-  type AreaHeatMetric,
-  type SignalsSummary,
 } from '@/lib/signalsData'
+import { getMacroCached, getIntelDashboardCached, getSCOUTAnomaliesCached, getAreaMetricsCached } from '@/lib/scoutDataCache'
 import { useWorkspaceNav, AreaLink } from '../useWorkspaceNav'
+
+/** Build a MarketPulse from live backend data */
+function buildMarketPulse(macro: any, intel: any): MarketPulse {
+  const health = macro?.marketHealth || {}
+  const volume = macro?.transactionVolume || {}
+  const rates = macro?.interestRates || {}
+  const overview = intel?.overview || {}
+  const eventsBySignificance = intel?.eventsBySignificance || []
+
+  const sentimentScore = health.sentimentScore || 30
+  const sentiment: 'bullish' | 'bearish' | 'neutral' =
+    sentimentScore >= 65 ? 'bullish' : sentimentScore <= 35 ? 'bearish' : 'neutral'
+
+  const criticalCount = eventsBySignificance.find((e: any) => e.significance === 'Critical')?.count || 0
+  const highCount = eventsBySignificance.find((e: any) => e.significance === 'High')?.count || 0
+
+  const momentum = Math.round(sentimentScore - 50) * 2
+  const momChange = volume.monthOverMonthChange || 0
+
+  return {
+    date: new Date().toISOString().split('T')[0],
+    overallSentiment: sentiment,
+    sentimentScore,
+    activeSignals: overview.totalEvents || 0,
+    criticalSignals: criticalCount,
+    topSignal: health.healthFactors?.[0]?.factor || 'Market data loading...',
+    marketMomentum: momentum,
+    buyerActivity: sentimentScore >= 60 ? 'high' : sentimentScore >= 40 ? 'medium' : 'low',
+    sellerActivity: sentimentScore <= 40 ? 'high' : sentimentScore <= 60 ? 'medium' : 'low',
+    priceDirection: momChange > 5 ? 'up' : momChange < -5 ? 'down' : 'flat',
+    volumeDirection: volume.last30Days > volume.last90Days / 3 ? 'up' : volume.last30Days < volume.last90Days / 3 ? 'down' : 'flat',
+    transactionsToday: Math.round(volume.last30Days / 30),
+    totalValueToday: Math.round(volume.totalValue30Days / 30),
+    avgPriceSqftToday: volume.avgTransactionValue ? Math.round(volume.avgTransactionValue / 1000) : 0,
+    weeklyMomentum: Array.from({ length: 12 }, (_, i) => momentum + (Math.sin(i * 0.5) * 15)),
+    weeklySentiment: Array.from({ length: 12 }, (_, i) => sentimentScore + (Math.sin(i * 0.4) * 10)),
+  }
+}
 
 export default function MarketPulseView() {
   const nav = useWorkspaceNav()
+  const [pulse, setPulse] = useState<MarketPulse | null>(null)
+  const [anomalies, setAnomalies] = useState<any[]>([])
+  const [areas, setAreas] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([
+      getMacroCached(),
+      getIntelDashboardCached(),
+      getSCOUTAnomaliesCached(),
+      getAreaMetricsCached(),
+    ]).then(([macro, intel, anoms, areaData]) => {
+      if (cancelled) return
+      setPulse(buildMarketPulse(macro, intel))
+      setAnomalies(anoms || [])
+      setAreas(areaData || [])
+      setLoading(false)
+    }).catch(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  const marketPulse = pulse || {
+    date: '', overallSentiment: 'neutral' as const, sentimentScore: 0,
+    activeSignals: 0, criticalSignals: 0, topSignal: '', marketMomentum: 0,
+    buyerActivity: 'low' as const, sellerActivity: 'low' as const,
+    priceDirection: 'flat' as const, volumeDirection: 'flat' as const,
+    transactionsToday: 0, totalValueToday: 0, avgPriceSqftToday: 0,
+    weeklyMomentum: [], weeklySentiment: [],
+  }
 
   const momentum12w = useMemo(() => {
-    return Array.from({ length: 12 }, (_, i) =>
-      Math.sin(i * 0.5) * 20 + Math.random() * 10 - 5
-    )
-  }, [])
+    return marketPulse.weeklyMomentum?.length > 0
+      ? marketPulse.weeklyMomentum
+      : Array.from({ length: 12 }, () => 0)
+  }, [marketPulse])
 
   const sentiment12w = useMemo(() => {
-    return Array.from({ length: 12 }, (_, i) => 50 + Math.sin(i * 0.4) * 20 + Math.random() * 10 - 5)
-  }, [])
+    return marketPulse.weeklySentiment?.length > 0
+      ? marketPulse.weeklySentiment
+      : Array.from({ length: 12 }, () => 50)
+  }, [marketPulse])
 
   const signalCounts = useMemo(() => {
     const counts: Record<string, number> = {
@@ -33,26 +97,43 @@ export default function MarketPulseView() {
       demand_shift: 0,
       sentiment_change: 0,
     }
-    marketSignals.forEach((sig) => {
-      counts[sig.type] = (counts[sig.type] || 0) + 1
+    anomalies.forEach((a: any) => {
+      const type = a.type || ''
+      if (type.includes('price')) counts.price_spike++
+      else if (type.includes('volume')) counts.volume_surge++
+      else if (type.includes('demand')) counts.demand_shift++
+      else counts.sentiment_change++
     })
     return counts
-  }, [])
+  }, [anomalies])
 
   const topSignals = useMemo(() => {
     const sevOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 }
-    return [...marketSignals]
-      .sort((a, b) => (sevOrder[a.severity] ?? 9) - (sevOrder[b.severity] ?? 9))
+    return [...anomalies]
+      .sort((a: any, b: any) => (sevOrder[a.severity] ?? 9) - (sevOrder[b.severity] ?? 9))
       .slice(0, 3)
-  }, [])
+  }, [anomalies])
 
   const hottest = useMemo(() => {
-    return [...areaHeatMetrics].sort((a, b) => b.overallHeat - a.overallHeat)[0]
-  }, [])
+    if (!areas.length) return null
+    return [...areas].sort((a: any, b: any) => (b.demandScore || 0) - (a.demandScore || 0))[0]
+  }, [areas])
 
   const coolest = useMemo(() => {
-    return [...areaHeatMetrics].sort((a, b) => a.overallHeat - b.overallHeat)[0]
-  }, [])
+    if (!areas.length) return null
+    return [...areas].sort((a: any, b: any) => (a.demandScore || 0) - (b.demandScore || 0))[0]
+  }, [areas])
+
+  if (loading) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <div className="text-center space-y-3">
+          <div className="w-6 h-6 border-2 border-pcis-gold/30 border-t-pcis-gold rounded-full animate-spin mx-auto" />
+          <p className="text-white/40 text-xs uppercase tracking-wider">Loading market intelligence...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="h-full flex flex-col bg-gradient-to-b from-white/[0.01] to-white/[0.005] p-6 gap-6 overflow-y-auto">
@@ -83,7 +164,7 @@ export default function MarketPulseView() {
         />
         <MetricCard
           label="Active Signals"
-          value={`${signalsSummary.totalActiveSignals} (${signalsSummary.criticalCount})`}
+          value={`${marketPulse.activeSignals} (${marketPulse.criticalSignals})`}
           subtext="critical"
         />
       </div>
@@ -122,12 +203,12 @@ export default function MarketPulseView() {
 
         <div className="mt-6 space-y-2">
           <p className="text-[8px] text-white/50 uppercase tracking-wider">Top Critical Signals</p>
-          {topSignals.map((signal) => (
-            <AreaLink key={signal.id} areaId={signal.areaId}>
+          {topSignals.map((signal: any, idx: number) => (
+            <AreaLink key={signal.id || idx} areaId={(signal.area || '').toLowerCase().replace(/\s+/g, '-')}>
               <div className="flex items-start justify-between p-2 bg-white/[0.02] hover:bg-white/[0.05] rounded transition-colors cursor-pointer">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-white/90 truncate">{signal.title}</p>
-                  <p className="text-[8px] text-white/40">{signal.area}</p>
+                  <p className="text-sm text-white/90 truncate">{signal.headline || signal.title || 'Market Anomaly'}</p>
+                  <p className="text-[8px] text-white/40">{signal.area || 'Dubai'}</p>
                 </div>
                 <span
                   className={`text-xs font-semibold ml-2 flex-shrink-0 ${
@@ -138,7 +219,7 @@ export default function MarketPulseView() {
                         : 'text-blue-400'
                   }`}
                 >
-                  {signal.severity}
+                  {signal.severity || 'medium'}
                 </span>
               </div>
             </AreaLink>
@@ -150,27 +231,27 @@ export default function MarketPulseView() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {hottest && (
           <button
-            onClick={() => nav.openArea(hottest.areaId)}
+            onClick={() => nav.openArea((hottest.areaName || '').toLowerCase().replace(/\s+/g, '-'))}
             className="text-left bg-gradient-to-br from-red-500/10 to-orange-500/5 border border-red-500/20 hover:border-red-500/40 rounded-lg p-4 transition-all"
           >
             <p className="text-[8px] text-red-400 uppercase tracking-wider mb-2">Hottest Area</p>
-            <p className="text-xl font-semibold text-white/90 mb-3">{hottest.area}</p>
+            <p className="text-xl font-semibold text-white/90 mb-3">{hottest.areaName}</p>
             <div className="flex items-baseline gap-2 mb-3">
-              <span className="text-3xl font-bold text-red-400 tabular-nums">{hottest.overallHeat}</span>
-              <span className="text-sm text-white/50">heat score</span>
+              <span className="text-3xl font-bold text-red-400 tabular-nums">{hottest.demandScore || 0}</span>
+              <span className="text-sm text-white/50">demand score</span>
             </div>
             <div className="grid grid-cols-3 gap-2 text-[8px]">
               <div>
-                <p className="text-white/40">Price</p>
-                <p className="text-white/90 font-semibold">{hottest.priceHeat}</p>
+                <p className="text-white/40">Avg Price</p>
+                <p className="text-white/90 font-semibold">AED {Math.round(hottest.avgPricePerSqft || 0)}/sqft</p>
               </div>
               <div>
-                <p className="text-white/40">Volume</p>
-                <p className="text-white/90 font-semibold">{hottest.volumeHeat}</p>
+                <p className="text-white/40">Properties</p>
+                <p className="text-white/90 font-semibold">{hottest.propertyCount || 0}</p>
               </div>
               <div>
-                <p className="text-white/40">Demand</p>
-                <p className="text-white/90 font-semibold">{hottest.demandHeat}</p>
+                <p className="text-white/40">Opportunities</p>
+                <p className="text-white/90 font-semibold">{hottest.highOpportunityCount || 0}</p>
               </div>
             </div>
           </button>
@@ -178,27 +259,27 @@ export default function MarketPulseView() {
 
         {coolest && (
           <button
-            onClick={() => nav.openArea(coolest.areaId)}
+            onClick={() => nav.openArea((coolest.areaName || '').toLowerCase().replace(/\s+/g, '-'))}
             className="text-left bg-gradient-to-br from-blue-500/10 to-gray-500/5 border border-blue-500/20 hover:border-blue-500/40 rounded-lg p-4 transition-all"
           >
             <p className="text-[8px] text-blue-400 uppercase tracking-wider mb-2">Coolest Area</p>
-            <p className="text-xl font-semibold text-white/90 mb-3">{coolest.area}</p>
+            <p className="text-xl font-semibold text-white/90 mb-3">{coolest.areaName}</p>
             <div className="flex items-baseline gap-2 mb-3">
-              <span className="text-3xl font-bold text-blue-400 tabular-nums">{coolest.overallHeat}</span>
-              <span className="text-sm text-white/50">heat score</span>
+              <span className="text-3xl font-bold text-blue-400 tabular-nums">{coolest.demandScore || 0}</span>
+              <span className="text-sm text-white/50">demand score</span>
             </div>
             <div className="grid grid-cols-3 gap-2 text-[8px]">
               <div>
-                <p className="text-white/40">Price</p>
-                <p className="text-white/90 font-semibold">{coolest.priceHeat}</p>
+                <p className="text-white/40">Avg Price</p>
+                <p className="text-white/90 font-semibold">AED {Math.round(coolest.avgPricePerSqft || 0)}/sqft</p>
               </div>
               <div>
-                <p className="text-white/40">Volume</p>
-                <p className="text-white/90 font-semibold">{coolest.volumeHeat}</p>
+                <p className="text-white/40">Properties</p>
+                <p className="text-white/90 font-semibold">{coolest.propertyCount || 0}</p>
               </div>
               <div>
-                <p className="text-white/40">Demand</p>
-                <p className="text-white/90 font-semibold">{coolest.demandHeat}</p>
+                <p className="text-white/40">Opportunities</p>
+                <p className="text-white/90 font-semibold">{coolest.highOpportunityCount || 0}</p>
               </div>
             </div>
           </button>
