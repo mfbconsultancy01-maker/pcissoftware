@@ -19,10 +19,14 @@ interface ScoutEnrichment {
 interface MarketIntel {
   pricePercentile: number | null
   areaMedianPsf: number | null
-  areaMinPsf: number | null
-  areaMaxPsf: number | null
+  areaP10Psf: number | null
+  areaP90Psf: number | null
   areaTotalTransactions: number | null
   areaAvgTotalPrice: number | null
+  buildingName: string | null
+  buildingAvgPsf: number | null
+  buildingTxnCount: number | null
+  priceVsBuilding: number | null
   askingToClosingRatio: number | null
   avgDaysOnMarket: number | null
   lifecycleStage: string | null
@@ -483,17 +487,25 @@ function ListingCard({ listing, expanded, onToggle }: {
           )}
 
           {/* PSF Range Visualization */}
-          {intel && intel.areaMinPsf !== null && intel.areaMaxPsf !== null && listing.pricePerSqft && (
+          {intel && intel.areaP10Psf !== null && intel.areaP90Psf !== null && listing.pricePerSqft && (
             <div>
               <span className="text-[7px] text-pcis-gold/60 uppercase tracking-wider font-semibold block mb-1">
-                PSF Range in Area
+                PSF Range in Area (P10–P90)
               </span>
               <div className="relative h-2 bg-white/[0.05] rounded-full overflow-hidden">
                 {/* Median marker */}
-                {intel.areaMedianPsf && intel.areaMaxPsf > intel.areaMinPsf && (
+                {intel.areaMedianPsf && intel.areaP90Psf > intel.areaP10Psf && (
                   <div
                     className="absolute top-0 w-px h-full bg-white/20"
-                    style={{ left: `${((intel.areaMedianPsf - intel.areaMinPsf) / (intel.areaMaxPsf - intel.areaMinPsf)) * 100}%` }}
+                    style={{ left: `${((intel.areaMedianPsf - intel.areaP10Psf) / (intel.areaP90Psf - intel.areaP10Psf)) * 100}%` }}
+                  />
+                )}
+                {/* Building avg marker (if available) */}
+                {intel.buildingAvgPsf && intel.areaP90Psf > intel.areaP10Psf && (
+                  <div
+                    className="absolute top-0 w-0.5 h-full bg-purple-400/60"
+                    style={{ left: `${Math.min(100, Math.max(0, ((intel.buildingAvgPsf - intel.areaP10Psf) / (intel.areaP90Psf - intel.areaP10Psf)) * 100))}%` }}
+                    title={`Building avg: ${intel.buildingAvgPsf.toLocaleString()}`}
                   />
                 )}
                 {/* This listing's position */}
@@ -501,14 +513,49 @@ function ListingCard({ listing, expanded, onToggle }: {
                   className="absolute top-0 w-1.5 h-full bg-pcis-gold rounded-full"
                   style={{
                     left: `${Math.min(100, Math.max(0,
-                      ((listing.pricePerSqft - intel.areaMinPsf) / (intel.areaMaxPsf - intel.areaMinPsf)) * 100
+                      ((listing.pricePerSqft - intel.areaP10Psf) / (intel.areaP90Psf - intel.areaP10Psf)) * 100
                     ))}%`
                   }}
                 />
               </div>
               <div className="flex justify-between mt-0.5">
-                <span className="text-[7px] text-white/20 tabular-nums">{intel.areaMinPsf.toLocaleString()}</span>
-                <span className="text-[7px] text-white/20 tabular-nums">{intel.areaMaxPsf.toLocaleString()}</span>
+                <span className="text-[7px] text-white/20 tabular-nums">P10: {intel.areaP10Psf.toLocaleString()}</span>
+                <span className="text-[7px] text-white/20 tabular-nums">P90: {intel.areaP90Psf.toLocaleString()}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Building-Level Intelligence */}
+          {intel && intel.buildingName && (intel.buildingAvgPsf || intel.priceVsBuilding !== null) && (
+            <div>
+              <span className="text-[7px] text-pcis-gold/60 uppercase tracking-wider font-semibold block mb-1.5">
+                Building: {intel.buildingName}
+              </span>
+              <div className="grid grid-cols-3 gap-2">
+                {intel.buildingAvgPsf && (
+                  <div>
+                    <span className="text-[7px] text-white/30 uppercase tracking-wider block">Bldg PSF</span>
+                    <span className="text-[9px] font-bold text-purple-300 tabular-nums">
+                      {intel.buildingAvgPsf.toLocaleString()}
+                    </span>
+                  </div>
+                )}
+                {intel.priceVsBuilding !== null && (
+                  <div>
+                    <span className="text-[7px] text-white/30 uppercase tracking-wider block">vs Bldg</span>
+                    <span className={`text-[9px] font-bold tabular-nums ${intel.priceVsBuilding < 0 ? 'text-emerald-400' : intel.priceVsBuilding > 15 ? 'text-red-400' : 'text-white/60'}`}>
+                      {intel.priceVsBuilding > 0 ? '+' : ''}{intel.priceVsBuilding}%
+                    </span>
+                  </div>
+                )}
+                {intel.buildingTxnCount && (
+                  <div>
+                    <span className="text-[7px] text-white/30 uppercase tracking-wider block">Bldg Txns</span>
+                    <span className="text-[9px] font-bold text-white/70 tabular-nums">
+                      {intel.buildingTxnCount}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           )}
