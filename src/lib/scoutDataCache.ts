@@ -127,6 +127,20 @@ const fetchers = {
     }
     return null
   },
+  myListings: async () => {
+    const response = await p1Api.getMyListings({ limit: 200 })
+    if (response?.success) {
+      return {
+        data: response.data || [],
+        summary: {
+          total: 0, showing: 0, totalValue: 0, avgPrice: 0,
+          byType: {}, byArea: {}, withScoutScore: 0,
+          ...(response.summary || {}),
+        },
+      }
+    }
+    return { data: [], summary: { total: 0, showing: 0, totalValue: 0, avgPrice: 0, byType: {}, byArea: {}, withScoutScore: 0 } }
+  },
 }
 
 // ── Background refresh loop ───────────────────────────────────────────────
@@ -182,6 +196,11 @@ export async function getIntelDashboardCached() {
 export async function getMacroCached() {
   startBackgroundRefresh()
   return fetchWithDedup('macro', fetchers.macro)
+}
+
+export async function getMyListingsCached() {
+  startBackgroundRefresh()
+  return fetchWithDedup('myListings', fetchers.myListings)
 }
 
 /** Force-clear all cached data (e.g., after a scrape run completes) */

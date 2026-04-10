@@ -494,12 +494,12 @@ function SCOUTSubPanelCards({ live }: { live: SCOUTLiveData }) {
       onClick: () => nav.openPanelByType('emerging-areas', 'tab'),
     },
     {
-      code: 'HMP', title: 'Heat Map',
-      desc: 'Multi-dimensional heat scoring across price, volume, demand, supply, yield, and sentiment',
-      metric: '7 dimensions',
-      sub: 'Area heat scoring',
+      code: 'LST', title: 'My Listings',
+      desc: 'Your broker inventory with SCOUT intelligence — price vs area avg, yield estimates, demand scoring',
+      metric: 'Your book',
+      sub: 'Broker inventory',
       color: '#f97316',
-      onClick: () => nav.openPanelByType('heat-map', 'tab'),
+      onClick: () => nav.openPanelByType('my-listings', 'tab'),
     },
     {
       code: 'NWS', title: 'Dubai News',

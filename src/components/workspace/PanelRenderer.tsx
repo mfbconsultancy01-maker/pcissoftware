@@ -44,7 +44,7 @@ import TourismDemandView from './panels/TourismDemandView'
 import SignalFeedView from './panels/SignalFeedView'
 import OpportunityRadarView from './panels/OpportunityRadarView'
 import EmergingAreasView from './panels/EmergingAreasView'
-import HeatMapView from './panels/HeatMapView'
+import MyListingsView from './panels/MyListingsView'
 import MarketPulseView from './panels/MarketPulseView'
 import CIEDashboardView from './panels/CIEDashboardView'
 import CIEProfileView from './panels/CIEProfileView'
@@ -432,10 +432,10 @@ export default function PanelRenderer({ panel }: { panel: Panel }) {
     )
   }
 
-  if (panel.type === 'heat-map') {
+  if (panel.type === 'my-listings') {
     return (
       <PanelContent>
-        <HeatMapView />
+        <MyListingsView />
       </PanelContent>
     )
   }

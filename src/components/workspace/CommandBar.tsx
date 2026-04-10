@@ -350,12 +350,12 @@ export default function CommandBar() {
       action: () => openPanel('emerging-areas', 'replace'),
     })
     cmds.push({
-      id: 'panel-heat-map',
-      label: 'Heat Map',
-      sublabel: 'Area activity and momentum analysis',
+      id: 'panel-my-listings',
+      label: 'My Listings',
+      sublabel: 'Your inventory with SCOUT intelligence overlay',
       category: 'Market Signals',
-      icon: 'HMP',
-      action: () => openPanel('heat-map', 'replace'),
+      icon: 'LST',
+      action: () => openPanel('my-listings', 'replace'),
     })
     cmds.push({
       id: 'panel-market-pulse',

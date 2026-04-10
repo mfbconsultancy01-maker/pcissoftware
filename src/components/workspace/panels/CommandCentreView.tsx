@@ -61,7 +61,7 @@ const ENGINES: EngineInfo[] = [
       { type: 'signal-feed', code: 'SIG', name: 'Market Signals', description: 'AI-detected market opportunities and risk signals' },
       { type: 'news-feed', code: 'NWS', name: 'Dubai News', description: 'Live Dubai real estate and financial news intelligence' },
       { type: 'emerging-areas', code: 'EMG', name: 'Emerging Areas', description: 'Up-and-coming areas with growth potential' },
-      { type: 'heat-map', code: 'HMP', name: 'Heat Map', description: 'Visual demand and activity heat map' },
+      { type: 'my-listings', code: 'LST', name: 'My Listings', description: 'Your broker inventory with SCOUT intelligence overlay' },
     ],
   },
   {
@@ -260,9 +260,9 @@ const PCIS_KNOWLEDGE: KnowledgeEntry[] = [
     action: { type: 'emerging-areas', label: 'Open Emerging Areas' },
   },
   {
-    keywords: ['heat map', 'hmp', 'hot area', 'demand map'],
-    answer: 'The Heat Map (GO: HMP) gives you a visual demand and activity map across Dubai areas. You can see where the action is at a glance.',
-    action: { type: 'heat-map', label: 'Open Heat Map' },
+    keywords: ['my listings', 'lst', 'inventory', 'my properties', 'broker listings'],
+    answer: 'My Listings (GO: LST) shows your own broker inventory enriched with SCOUT intelligence — price vs area average, yield estimates, and demand scoring for each of your properties.',
+    action: { type: 'my-listings', label: 'Open My Listings' },
   },
   // ENGINE
   {

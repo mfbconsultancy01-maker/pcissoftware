@@ -786,6 +786,19 @@ export const p1Api = {
     return data
   },
 
+  // ── SCOUT: My Listings (Broker's own inventory) ─────────────────────────
+  getMyListings: async (params?: { area?: string; type?: string; sort?: string; limit?: number; offset?: number }) => {
+    const query = new URLSearchParams()
+    if (params?.area) query.set('area', params.area)
+    if (params?.type) query.set('type', params.type)
+    if (params?.sort) query.set('sort', params.sort)
+    if (params?.limit) query.set('limit', String(params.limit))
+    if (params?.offset) query.set('offset', String(params.offset))
+    const qs = query.toString() ? `?${query.toString()}` : ''
+    const data = await p1Request(`/api/scout-data/my-listings${qs}`)
+    return data
+  },
+
   // ── Health ──────────────────────────────────────────────────────────────
   health: async () => {
     // Health check goes direct — it's unauthenticated on the backend

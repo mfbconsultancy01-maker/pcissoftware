@@ -55,7 +55,7 @@ export type PanelType =
   | 'signal-feed'
   | 'opportunity-radar'
   | 'emerging-areas'
-  | 'heat-map'
+  | 'my-listings'
   | 'market-pulse'
   | 'cie-dashboard'
   | 'cie-profile'
@@ -209,7 +209,7 @@ export const PANEL_REGISTRY: Record<PanelType, { title: string; icon: string; sh
   'signal-feed':         { title: 'Market Signals',      icon: 'SIG' },
   'opportunity-radar':   { title: 'Opportunity Radar',   icon: 'OPP' },
   'emerging-areas':      { title: 'Emerging Areas',      icon: 'EMG' },
-  'heat-map':            { title: 'Heat Map',            icon: 'HMP' },
+  'my-listings':         { title: 'My Listings',          icon: 'LST' },
   'market-pulse':        { title: 'Market Pulse',        icon: 'PLS' },
   'news-feed':           { title: 'Dubai News',          icon: 'NWS' },
   'cie-dashboard':       { title: 'CIE Dashboard',       icon: 'CID' },
