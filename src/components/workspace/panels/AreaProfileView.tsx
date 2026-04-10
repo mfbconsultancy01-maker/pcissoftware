@@ -386,7 +386,7 @@ export default function AreaProfileView({ entityId }: { entityId: string }) {
           {/* ═══════════════════════════════════════════════════════════════════ */}
           {/* 1b. DLD INTELLIGENCE (API-powered) */}
           {/* ═══════════════════════════════════════════════════════════════════ */}
-          {apiData && (
+          {apiData && (<>
             <div className="grid grid-cols-3 gap-3">
 
               {/* PSF Range */}
@@ -536,7 +536,7 @@ export default function AreaProfileView({ entityId }: { entityId: string }) {
                 </div>
               </div>
             </div>
-          )}
+          </>)}
 
           {/* ═══════════════════════════════════════════════════════════════════ */}
           {/* 1c. RECENT DLD TRANSACTIONS */}
