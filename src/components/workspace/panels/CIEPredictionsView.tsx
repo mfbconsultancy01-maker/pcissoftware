@@ -396,10 +396,7 @@ export default function CIEPredictionsView() {
   const { data: liveCIEClients, loading } = useCIEClients()
   const cieClients = liveCIEClients || []
 
-  // Loading guard AFTER all hook calls
-  if (loading && cieClients.length === 0) return <P1Loading message="Loading CIE data..." />
-
-  // Get all predictions with client data
+  // Get all predictions with client data — MUST be before loading guard (React hooks order)
   const allPredictionsWithClients = useMemo(
     () => getAllPredictionsWithClients(cieClients),
     [cieClients]
@@ -439,6 +436,9 @@ export default function CIEPredictionsView() {
     () => filteredAndSorted.filter(p => p.confidence >= 80),
     [filteredAndSorted]
   )
+
+  // Loading guard — all hooks called above
+  if (loading && cieClients.length === 0) return <P1Loading message="Loading CIE data..." />
 
   // Get momentum symbol and color
   const getMomentumDisplay = (momentum: MomentumDirection) => {

@@ -60,19 +60,7 @@ export default function CIEGridView(): React.ReactElement {
   const [filterEngagement, setFilterEngagement] = useState<FilterEngagement>('all')
   const [search, setSearch] = useState('')
 
-  if (!liveCIEClients && loading) {
-    return <P1Loading message="Loading..." />
-  }
-
-  const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortField(field)
-      setSortDir('desc')
-    }
-  }
-
+  // Sorted/filtered list — MUST be before loading guard (React hooks order)
   const sorted = useMemo(() => {
     let result = [...cieClients]
 
@@ -113,7 +101,21 @@ export default function CIEGridView(): React.ReactElement {
     })
 
     return result
-  }, [sortField, sortDir, filterArchetype, filterEngagement, search])
+  }, [cieClients, sortField, sortDir, filterArchetype, filterEngagement, search])
+
+  // Loading guard — all hooks called above
+  if (!liveCIEClients && loading) {
+    return <P1Loading message="Loading..." />
+  }
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortDir('desc')
+    }
+  }
 
   const SortHeader = ({ field, label, className = '' }: { field: SortField; label: string; className?: string }) => (
     <th

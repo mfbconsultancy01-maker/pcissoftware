@@ -219,6 +219,43 @@ export const DIMENSION_META: DimensionMeta[] = [
 // ENRICHED CLIENT TYPE (combines Client + Cognitive + Engagement)
 // ============================================================================
 
+// ============================================================================
+// CIE INSIGHTS — Claude-generated profiling output
+// ============================================================================
+
+export interface CIEDimensionInsight {
+  code: string
+  name: string
+  score: number
+  confidence: number
+  trend: 'Increasing' | 'Decreasing' | 'Stable'
+  evidence: string
+  macroInfluence: string | null
+  advisorImplication: string
+}
+
+export interface CIEInsights {
+  profiledAt: string
+  profilingModel: string
+  packageVersion: string
+  dimensions: Record<string, CIEDimensionInsight>
+  archetype: string
+  archetypeReasoning: string
+  overallNarrative: string
+  topRecommendations: string[]
+  macroRegion: string | null
+  dataQuality: {
+    totalSignals: number
+    interactionRichness: 'high' | 'moderate' | 'low'
+    macroContextAvailable: boolean
+    overallConfidence: number
+  }
+}
+
+// ============================================================================
+// ENRICHED CLIENT TYPE (combines Client + Cognitive + Engagement)
+// ============================================================================
+
 export interface CIEClient {
   client: Client
   profile: CognitiveProfile | null
@@ -231,6 +268,7 @@ export interface CIEClient {
   bottomDimensions: CognitiveScore[]
   overallCIEScore: number // composite 0-100
   signalCount: number
+  cieInsights: CIEInsights | null // Claude-generated evidence + advisor intelligence
 }
 
 function deriveArchetype(profile: CognitiveProfile): Archetype {
@@ -283,6 +321,7 @@ export function buildCIEClients(): CIEClient[] {
       bottomDimensions,
       overallCIEScore,
       signalCount: clientSignals.length,
+      cieInsights: null,
     }
   })
 }

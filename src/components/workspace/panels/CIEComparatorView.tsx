@@ -38,10 +38,6 @@ export default function CIEComparatorView() {
     null,
   ])
 
-  if (!liveCIEClients && loading) {
-    return <P1Loading message="Loading..." />
-  }
-
   const selectedClients = useMemo(
     () => selectedIds.map((id) => (id ? cieClients.find(c => c.client.id === id) || null : null)).filter(Boolean) as CIEClient[],
     [selectedIds, cieClients]
@@ -218,6 +214,11 @@ export default function CIEComparatorView() {
       ranked: ranked.map(r => r.firstName),
     }
   }, [selectedClients, alignmentScore])
+
+  // Loading guard — all hooks called above
+  if (!liveCIEClients && loading) {
+    return <P1Loading message="Loading..." />
+  }
 
   const getScoreColor = (score: number): string => {
     if (score >= 75) return '#d4a574'

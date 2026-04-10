@@ -73,6 +73,11 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
 
 interface BackendAreaMetrics {
   areaName: string
+  displayName?: string
+  shortName?: string
+  isHidden?: boolean
+  estimatedYield?: number
+  outlook?: string
   propertyCount: number
   avgPrice: number
   medianPrice: number
@@ -89,10 +94,15 @@ interface BackendAreaMetrics {
 
 function mergeBackendWithStatic(backendData: BackendAreaMetrics[], staticAreas: AreaProfile[]): AreaProfile[] {
   return backendData.map(backend => {
-    // Try to find matching static area by name
+    // Use display name from backend (DLD→marketing name mapping)
+    const displayName = backend.displayName || backend.areaName
+    const shortName = backend.shortName || backend.areaName.split(' ')[0].slice(0, 4)
+
+    // Try to find matching static area by display name
     const staticMatch = staticAreas.find(
-      s => s.name.toUpperCase() === backend.areaName.toUpperCase() ||
-      s.shortName?.toUpperCase() === backend.areaName.toUpperCase()
+      s => s.name.toUpperCase() === displayName.toUpperCase() ||
+      s.name.toUpperCase() === backend.areaName.toUpperCase() ||
+      s.shortName?.toUpperCase() === shortName.toUpperCase()
     )
 
     // Generate reasonable defaults for missing fields
@@ -101,26 +111,41 @@ function mergeBackendWithStatic(backendData: BackendAreaMetrics[], staticAreas: 
     const volumeHistory = staticMatch?.volumeHistory || Array.from({ length: 30 }, () => backend.propertyCount / 30 + (Math.random() - 0.5) * 50)
 
     return {
-      id: staticMatch?.id || `area-${backend.areaName.toLowerCase().replace(/\s+/g, '-')}`,
-      name: backend.areaName,
-      shortName: staticMatch?.shortName || backend.areaName.split(' ')[0],
+      id: `area-${backend.areaName.toLowerCase().replace(/\s+/g, '-')}`,
+      name: displayName,
+      shortName,
       subAreas: staticMatch?.subAreas || [],
       demandScore: backend.demandScore,
       demandTrend: backend.priceChange30d > 0 ? 'rising' : backend.priceChange30d < 0 ? 'falling' : 'stable',
+      demandChange: backend.priceChange30d,
       avgPriceSqft: backend.avgPricePerSqft,
       priceChange30d: backend.priceChange30d,
-      priceChangeYoY: staticMatch?.priceChangeYoY || backend.priceChange30d * 0.8, // Estimate YoY from 30d
-      avgRentalYield: staticMatch?.avgRentalYield || 4.5, // Default yield
-      transactionCount90d: backend.propertyCount, // Use property count as proxy
-      totalInventory: backend.inventoryCount,
+      priceChange90d: staticMatch?.priceChange90d || 0,
+      priceChangeYoY: staticMatch?.priceChangeYoY || 0,
+      avgRentalYield: backend.estimatedYield || staticMatch?.avgRentalYield || 6.0,
+      transactionCount90d: backend.propertyCount,
+      totalInventory: backend.inventoryCount || backend.propertyCount,
+      newListings30d: backend.inventoryCount,
+      avgTransactionValue: backend.avgPrice,
       cashPercent: staticMatch?.cashPercent || 35,
       topPropertyType: backend.topPropertyTypes?.[0]?.type || 'Apartment',
-      outlook: backend.demandScore >= 75 ? 'bullish' : backend.demandScore >= 55 ? 'neutral' : 'bearish',
+      topBuyerNationality: staticMatch?.topBuyerNationality || '',
+      outlook: (backend.outlook as any) || (backend.demandScore >= 75 ? 'bullish' : backend.demandScore >= 55 ? 'neutral' : 'bearish'),
+      outlookReason: staticMatch?.outlookReason || '',
+      coordinates: staticMatch?.coordinates || { lat: 25.2, lng: 55.27 },
+      description: staticMatch?.description || '',
+      keyDrivers: staticMatch?.keyDrivers || [],
+      riskFactors: staticMatch?.riskFactors || [],
       priceHistory,
       demandHistory,
       volumeHistory,
+      yieldHistory: staticMatch?.yieldHistory || [],
+      recentTransactions: staticMatch?.recentTransactions || [],
+      activeInventory: staticMatch?.activeInventory || [],
+      priceBreakdown: staticMatch?.priceBreakdown || [],
+      buyerDemographics: staticMatch?.buyerDemographics || [],
       liquidity: staticMatch?.liquidity || {
-        liquidityScore: Math.round((backend.inventoryCount / Math.max(backend.propertyCount, 1)) * 100),
+        liquidityScore: Math.min(100, Math.round((backend.inventoryCount / Math.max(backend.propertyCount, 1)) * 100)),
         absorptionRate: backend.propertyCount > 0 ? backend.inventoryCount / backend.propertyCount : 0,
         avgDaysToSell: backend.avgDaysOnMarket || undefined,
         avgDaysOnMarket: backend.avgDaysOnMarket || 0,
@@ -129,10 +154,19 @@ function mergeBackendWithStatic(backendData: BackendAreaMetrics[], staticAreas: 
         maturityLevel: backend.propertyCount > 500 ? 'Established' : backend.propertyCount > 100 ? 'Maturing' : 'Emerging',
       },
       regulatory: staticMatch?.regulatory || { isFreehold: true },
-      rental: staticMatch?.rental || { avgRent: 60000, occupancyRate: 85, rentChange: 2.5 },
-      serviceCharges: staticMatch?.serviceCharges || { avgPerSqft: 25 },
+      rental: staticMatch?.rental || {
+        avgRent: Math.round(backend.avgPricePerSqft * (backend.estimatedYield || 6) / 100 * 1000),
+        occupancyRate: 85,
+        rentChange: 2.5,
+      },
+      serviceCharges: staticMatch?.serviceCharges || { avgPerSqft: backend.avgPricePerSqft > 2000 ? 30 : 20 },
       supplyPipeline: staticMatch?.supplyPipeline || [],
-    } as AreaProfile
+      priceTiers: staticMatch?.priceTiers || [],
+      seasonalPattern: staticMatch?.seasonalPattern || {} as any,
+      lifestyle: staticMatch?.lifestyle || {} as any,
+      // Store DLD name for profile lookup
+      _dldName: backend.areaName,
+    } as AreaProfile & { _dldName: string }
   })
 }
 
@@ -285,7 +319,7 @@ export default function AreaGridView() {
         <div className="flex-1 overflow-y-auto min-h-0">
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-2 pb-2">
             {sorted.map((area) => (
-              <AreaCard key={area.id} area={area} onClick={() => nav.openArea(area.id)} />
+              <AreaCard key={area.id} area={area} onClick={() => nav.openArea((area as any)._dldName || area.name)} />
             ))}
           </div>
           {sorted.length === 0 && (

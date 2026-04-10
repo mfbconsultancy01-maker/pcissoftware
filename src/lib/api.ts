@@ -300,6 +300,11 @@ export const p1Api = {
     return data
   },
 
+  getAreaProfile: async (areaName: string) => {
+    const data = await p1Request(`/api/areas/profile/${encodeURIComponent(areaName)}`)
+    return data
+  },
+
   // ── SCOUT: Scraping ─────────────────────────────────────────────────────
   getScrapeSources: async () => {
     const data = await p1Request('/api/scraping/sources')

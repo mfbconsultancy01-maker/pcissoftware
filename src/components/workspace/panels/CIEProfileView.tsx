@@ -7,9 +7,10 @@ import {
   getClientSignalsForCIE,
   pciscomSignals,
   type CIEClient,
+  type CIEDimensionInsight,
   type DimensionMeta,
 } from '@/lib/cieData'
-import { useCIEClients, getCIESourceLabel, getCIESourceColor } from '@/lib/useCIEData'
+import { useCIEClients, useProfileClient, getCIESourceLabel, getCIESourceColor } from '@/lib/useCIEData'
 import { P1Loading } from '@/components/P1Loading'
 
 import { useWorkspaceNav } from '../useWorkspaceNav'
@@ -113,13 +114,19 @@ function ClientListView({ onSelectClient, allClients }: { onSelectClient: (id: s
 
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
-                    <div
-                      className="w-[4px] h-[4px] rounded-full"
-                      style={{ backgroundColor: engColor }}
-                    />
-                    <span className="text-[8px] font-medium uppercase" style={{ color: engColor }}>
-                      {client.engagement?.status || 'unknown'}
-                    </span>
+                    {client.cieInsights ? (
+                      <>
+                        <div className="w-[4px] h-[4px] rounded-full bg-green-500" />
+                        <span className="text-[8px] font-medium text-green-500">PROFILED</span>
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-[4px] h-[4px] rounded-full" style={{ backgroundColor: engColor }} />
+                        <span className="text-[8px] font-medium uppercase" style={{ color: engColor }}>
+                          {client.engagement?.status || 'not profiled'}
+                        </span>
+                      </>
+                    )}
                   </div>
                   {dimMeta && (
                     <span className="text-[8px] text-pcis-text-muted">
@@ -138,10 +145,15 @@ function ClientListView({ onSelectClient, allClients }: { onSelectClient: (id: s
 
 // ── Client Profile View ─────────────────────────────────────────────────
 
-function ClientProfileView({ client, onBack, dataSource }: { client: CIEClient; onBack?: () => void; dataSource?: 'live' | 'mock' }) {
+function ClientProfileView({ client, onBack, dataSource, onRefresh }: { client: CIEClient; onBack?: () => void; dataSource?: 'live' | 'mock'; onRefresh?: () => void }) {
   const archetype = ARCHETYPES.find(a => a.id === client.archetype)
-  const archetypeColor = archetype?.color || '#D4A574'
-  const pciscomClientSignals = pciscomSignals.filter(s => s.clientId === client.client.id)
+  const insights = client.cieInsights
+  const { profiling, trigger: triggerProfile } = useProfileClient()
+
+  const handleProfile = async () => {
+    await triggerProfile(client.client.id)
+    onRefresh?.()
+  }
 
   return (
     <div className="h-full flex flex-col overflow-y-auto">
@@ -172,6 +184,16 @@ function ClientProfileView({ client, onBack, dataSource }: { client: CIEClient; 
                   {archetype.label}
                 </span>
               )}
+              {insights?.macroRegion && (
+                <span className="px-2 py-1 text-[8px] font-mono bg-blue-500/10 border border-blue-500/30 text-blue-400 rounded">
+                  {insights.macroRegion}
+                </span>
+              )}
+              {insights?.dataQuality && (
+                <span className="px-2 py-1 text-[8px] font-mono bg-pcis-border/15 text-pcis-text-muted rounded">
+                  {insights.dataQuality.interactionRichness} data
+                </span>
+              )}
               {dataSource && (
                 <span
                   className="px-2 py-1 text-[8px] font-semibold rounded"
@@ -182,68 +204,106 @@ function ClientProfileView({ client, onBack, dataSource }: { client: CIEClient; 
               )}
             </div>
           </div>
-          <div className="text-right">
-            <div className="text-4xl font-bold font-mono" style={{ color: getCIEScoreColor(client.overallCIEScore) }}>
-              {client.overallCIEScore}
+          <div className="text-right flex flex-col items-end gap-2">
+            <div>
+              <div className="text-4xl font-bold font-mono" style={{ color: getCIEScoreColor(client.overallCIEScore) }}>
+                {client.overallCIEScore}
+              </div>
+              <p className="text-[8px] text-pcis-text-muted mt-1">CIE Score</p>
             </div>
-            <p className="text-[8px] text-pcis-text-muted mt-1">CIE Score</p>
+            <button
+              onClick={handleProfile}
+              disabled={profiling}
+              className="px-3 py-1.5 text-[8px] font-semibold rounded-lg border transition-all disabled:opacity-50"
+              style={{
+                backgroundColor: profiling ? 'transparent' : '#D4A57415',
+                borderColor: '#D4A57440',
+                color: '#D4A574',
+              }}
+            >
+              {profiling ? 'Profiling...' : insights ? 'Re-Profile' : 'Run CIE Profile'}
+            </button>
           </div>
         </div>
       </div>
 
       {/* Content Scroll Area */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-        {/* Summary Card */}
-        {client.profile && (
+
+        {/* Intelligence Briefing — from Claude */}
+        {insights?.overallNarrative && (
+          <div className="bg-white/[0.02] border border-pcis-gold/20 rounded-xl overflow-hidden p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-[3px] h-3.5 rounded-full bg-pcis-gold" />
+              <span className="text-[10px] font-semibold text-pcis-gold uppercase tracking-wider">Intelligence Briefing</span>
+            </div>
+            <p className="text-[10px] text-pcis-text-primary/90 leading-relaxed">
+              {insights.overallNarrative}
+            </p>
+          </div>
+        )}
+
+        {/* Top Recommendations */}
+        {insights?.topRecommendations && insights.topRecommendations.length > 0 && (
+          <div className="bg-white/[0.02] border border-pcis-border/30 rounded-xl overflow-hidden p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-[3px] h-3.5 rounded-full" style={{ backgroundColor: '#22c55e' }} />
+              <span className="text-[10px] font-semibold text-pcis-text-secondary uppercase tracking-wider">Action Items</span>
+            </div>
+            <div className="space-y-1.5">
+              {insights.topRecommendations.map((rec, i) => (
+                <div key={i} className="flex gap-2 items-start">
+                  <span className="text-[10px] font-bold text-pcis-gold mt-0.5 flex-shrink-0">{i + 1}.</span>
+                  <p className="text-[9px] text-pcis-text-primary/85 leading-relaxed">{rec}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Archetype Reasoning */}
+        {insights?.archetypeReasoning && (
+          <div className="bg-white/[0.02] border border-pcis-border/30 rounded-xl overflow-hidden p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-[3px] h-3.5 rounded-full" style={{ backgroundColor: archetype?.color || '#D4A574' }} />
+              <span className="text-[10px] font-semibold text-pcis-text-secondary uppercase tracking-wider">
+                Why {archetype?.label || 'Balanced'}
+              </span>
+            </div>
+            <p className="text-[9px] text-pcis-text-secondary/80 leading-relaxed">
+              {insights.archetypeReasoning}
+            </p>
+          </div>
+        )}
+
+        {/* Summary Card (fallback when no CIE insights) */}
+        {!insights && client.profile && client.profile.summary && (
           <div className="bg-white/[0.02] border border-pcis-border/30 rounded-xl overflow-hidden p-3">
             <p className="text-[10px] text-pcis-text-primary/90 mb-2 leading-relaxed">
               {client.profile.summary}
             </p>
-            {client.profile.keyTraits && client.profile.keyTraits.length > 0 && (
-              <div className="flex gap-1.5 flex-wrap mb-2">
-                {client.profile.keyTraits.map((trait, i) => (
-                  <span
-                    key={i}
-                    className="px-1.5 py-0.5 text-[8px] bg-pcis-border/20 border border-pcis-border/40 text-pcis-text-secondary rounded"
-                  >
-                    {trait}
-                  </span>
-                ))}
-              </div>
-            )}
-            {client.profile.approachStrategy && (
-              <div className="text-[9px] text-pcis-text-secondary">
-                <strong className="text-pcis-gold">Approach:</strong> {client.profile.approachStrategy}
-              </div>
-            )}
           </div>
         )}
 
-        {/* 12-Dimension Grid */}
+        {/* 12-Dimension Grid — WITH Evidence Trails */}
         <div>
-          <PanelHeader title="12 Dimensions" accent="#a78bfa" />
+          <PanelHeader title="12 Cognitive Dimensions" accent="#a78bfa" />
           <div className="px-3 py-2">
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               {DIMENSION_META.map((meta) => {
                 const dimensionScore = client.profile?.scores?.find(s => s.dimension === meta.name)
                 const score = dimensionScore?.value || 0
                 const confidence = dimensionScore?.confidence || 0
                 const trend = dimensionScore?.trend || 'stable'
 
+                // Get CIE insight for this dimension (evidence + macro + implication)
+                const insight: CIEDimensionInsight | null = insights?.dimensions?.[meta.shortCode] || null
+
                 const trendSymbol = trend === 'rising' ? '▲' : trend === 'falling' ? '▼' : '→'
                 const trendColor =
-                  trend === 'rising'
-                    ? '#22c55e'
-                    : trend === 'falling'
-                      ? '#ef4444'
-                      : '#9ca3af'
-
+                  trend === 'rising' ? '#22c55e' : trend === 'falling' ? '#ef4444' : '#9ca3af'
                 const barColor =
-                  score >= 70
-                    ? '#22c55e'
-                    : score >= 40
-                      ? '#f59e0b'
-                      : '#6b7280'
+                  score >= 70 ? '#22c55e' : score >= 40 ? '#f59e0b' : '#6b7280'
 
                 return (
                   <div
@@ -255,6 +315,7 @@ function ClientProfileView({ client, onBack, dataSource }: { client: CIEClient; 
                         <p className="text-[9px] font-semibold text-pcis-text-primary truncate">
                           {meta.shortCode}
                         </p>
+                        <p className="text-[7px] text-pcis-text-muted/60 truncate">{meta.name}</p>
                       </div>
                       <span className="text-[9px] font-bold ml-1" style={{ color: trendColor }}>
                         {trendSymbol}
@@ -263,11 +324,11 @@ function ClientProfileView({ client, onBack, dataSource }: { client: CIEClient; 
 
                     <div className="mb-1.5">
                       <div className="flex items-center justify-between mb-0.5">
-                        <span className="text-[9px] font-mono font-bold text-pcis-gold">
+                        <span className="text-[11px] font-mono font-bold text-pcis-gold">
                           {score}
                         </span>
                         <span className="text-[7px] text-pcis-text-muted">
-                          {confidence}%
+                          {Math.round(confidence * 100)}%
                         </span>
                       </div>
                       <div className="w-full h-1.5 bg-pcis-border/20 rounded overflow-hidden">
@@ -278,9 +339,26 @@ function ClientProfileView({ client, onBack, dataSource }: { client: CIEClient; 
                       </div>
                     </div>
 
-                    <p className="text-[8px] text-pcis-text-secondary/80 leading-tight line-clamp-2">
-                      {meta.description}
-                    </p>
+                    {/* Evidence Trail — the WHY */}
+                    {insight?.evidence ? (
+                      <div className="mt-1.5 space-y-1">
+                        <p className="text-[7px] text-pcis-text-secondary/70 leading-tight">
+                          {insight.evidence}
+                        </p>
+                        {insight.macroInfluence && (
+                          <p className="text-[7px] text-blue-400/70 leading-tight italic">
+                            {insight.macroInfluence}
+                          </p>
+                        )}
+                        <p className="text-[7px] text-pcis-gold/70 leading-tight">
+                          {insight.advisorImplication}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-[7px] text-pcis-text-muted/40 mt-1 italic">
+                        Run CIE profiling for evidence
+                      </p>
+                    )}
                   </div>
                 )
               })}
@@ -288,104 +366,17 @@ function ClientProfileView({ client, onBack, dataSource }: { client: CIEClient; 
           </div>
         </div>
 
-        {/* Risk Factors & Communication Tips */}
-        {client.profile && (
-          <div className="grid grid-cols-2 gap-2">
-            {/* Risk Factors */}
-            <div className="bg-white/[0.02] border border-pcis-border/30 rounded-xl overflow-hidden">
-              <PanelHeader title="Risk Factors" accent="#ef4444" />
-              <div className="px-3 py-2 space-y-1">
-                {client.profile.riskFactors && client.profile.riskFactors.length > 0 ? (
-                  client.profile.riskFactors.map((risk, i) => (
-                    <div key={i} className="text-[9px] text-pcis-text-secondary/90 flex gap-2">
-                      <span className="text-pcis-gold mt-0.5 flex-shrink-0">●</span>
-                      <span>{risk}</span>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-[8px] text-pcis-text-muted/50 italic">No risk factors</p>
-                )}
-              </div>
-            </div>
-
-            {/* Communication Tips */}
-            <div className="bg-white/[0.02] border border-pcis-border/30 rounded-xl overflow-hidden">
-              <PanelHeader title="Communication" accent="#06b6d4" />
-              <div className="px-3 py-2 space-y-1">
-                {client.profile.communicationTips && client.profile.communicationTips.length > 0 ? (
-                  client.profile.communicationTips.map((tip, i) => (
-                    <div key={i} className="text-[9px] text-pcis-text-secondary/90 flex gap-2">
-                      <span className="text-pcis-gold mt-0.5 flex-shrink-0">◆</span>
-                      <span>{tip}</span>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-[8px] text-pcis-text-muted/50 italic">No tips available</p>
-                )}
-              </div>
+        {/* Profiling Metadata */}
+        {insights && (
+          <div className="bg-white/[0.01] border border-pcis-border/15 rounded-lg px-3 py-2">
+            <div className="flex items-center justify-between text-[7px] text-pcis-text-muted/60">
+              <span>Profiled: {new Date(insights.profiledAt).toLocaleDateString()}</span>
+              <span>Model: {insights.profilingModel}</span>
+              <span>Signals: {insights.dataQuality.totalSignals}</span>
+              <span>Confidence: {Math.round(insights.dataQuality.overallConfidence * 100)}%</span>
             </div>
           </div>
         )}
-
-        {/* PCISCOM Signals */}
-        <div className="bg-white/[0.02] border border-pcis-border/30 rounded-xl overflow-hidden">
-          <PanelHeader title="PCISCOM Signals" accent="#06b6d4" count={pciscomClientSignals.length} />
-          <div className="px-3 py-2">
-            {pciscomClientSignals && pciscomClientSignals.length > 0 ? (
-              <div className="space-y-2">
-                {pciscomClientSignals.map((signal, i) => (
-                  <div key={i} className="bg-white/[0.01] border border-pcis-border/20 rounded p-2">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <p className="text-[9px] font-semibold text-pcis-text-primary">
-                        {signal.intent}
-                      </p>
-                      <span className="text-[7px] text-pcis-text-muted font-mono">
-                        {signal.timestamp}
-                      </span>
-                    </div>
-
-                    {/* Sentiment Bar */}
-                    <div className="mb-1.5">
-                      <div className="flex items-center justify-between mb-0.5">
-                        <span className="text-[8px] text-pcis-text-muted">Sentiment</span>
-                        <span className="text-[8px] font-mono text-pcis-gold">
-                          {Math.round(signal.sentiment * 100)}%
-                        </span>
-                      </div>
-                      <div className="w-full h-1 bg-pcis-border/20 rounded overflow-hidden">
-                        <div
-                          className="h-full bg-blue-500/60"
-                          style={{ width: `${signal.sentiment * 100}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Dimension Impacts */}
-                    {signal.dimensionImpacts && signal.dimensionImpacts.length > 0 && (
-                      <div className="text-[8px] text-pcis-text-muted/70">
-                        <p className="font-semibold mb-1">Impacts:</p>
-                        <div className="flex flex-wrap gap-1">
-                          {signal.dimensionImpacts.map((dim: { dimension: string; delta: number; confidence: number }, j: number) => (
-                            <span
-                              key={j}
-                              className="px-1 py-0.5 bg-pcis-border/25 rounded text-pcis-text-muted text-[7px]"
-                            >
-                              {dim.dimension}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-[8px] text-pcis-text-muted/50 italic px-1 py-2">
-                Awaiting PCISCOM connection
-              </p>
-            )}
-          </div>
-        </div>
       </div>
     </div>
   )
@@ -395,7 +386,7 @@ function ClientProfileView({ client, onBack, dataSource }: { client: CIEClient; 
 
 export default function CIEProfileView({ entityId }: { entityId: string }) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const { data: liveCIEClients, source: dataSource, loading } = useCIEClients()
+  const { data: liveCIEClients, source: dataSource, loading, refetch } = useCIEClients()
   const allClients = liveCIEClients || []
 
   // Loading guard AFTER all hook calls
@@ -412,7 +403,7 @@ export default function CIEProfileView({ entityId }: { entityId: string }) {
 
   // If we have a client, show the profile
   if (client) {
-    return <ClientProfileView client={client} onBack={!entityId ? () => setSelectedId(null) : undefined} dataSource={dataSource} />
+    return <ClientProfileView client={client} onBack={!entityId ? () => setSelectedId(null) : undefined} dataSource={dataSource} onRefresh={refetch} />
   }
 
   // Fallback: client not found

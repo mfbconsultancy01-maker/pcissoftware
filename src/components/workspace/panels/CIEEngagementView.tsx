@@ -33,10 +33,6 @@ export default function CIEEngagementView() {
   const { data: liveCIEClients, loading, source: dataSource } = useCIEClients()
   const cieClients = liveCIEClients || []
 
-  if (!liveCIEClients && loading) {
-    return <P1Loading message="Loading..." />
-  }
-
   const summary = useMemo(() => {
     if (!cieClients || cieClients.length === 0) {
       return {
@@ -120,6 +116,11 @@ export default function CIEEngagementView() {
     })
     return sorted
   }, [filteredClients, sortBy])
+
+  // Loading guard — all hooks called above
+  if (!liveCIEClients && loading) {
+    return <P1Loading message="Loading..." />
+  }
 
   // Separate at-risk clients
   const atRiskClients = sortedClients.filter(

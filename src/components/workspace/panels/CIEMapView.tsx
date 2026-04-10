@@ -99,10 +99,6 @@ export default function CIEMapView(): React.ReactElement {
   const [hoveredClient, setHoveredClient] = useState<CIEClient | null>(null)
   const [selectedClient, setSelectedClient] = useState<CIEClient | null>(null)
 
-  if (!liveCIEClients && loading) {
-    return <P1Loading message="Loading..." />
-  }
-
   const displayClient = hoveredClient || selectedClient
 
   const summary = useMemo(() => {
@@ -306,6 +302,11 @@ export default function CIEMapView(): React.ReactElement {
       } catch (_) {}
     }
   }, [clientPositions, mapReady, nav])
+
+  // Loading guard — all hooks called above
+  if (!liveCIEClients && loading) {
+    return <P1Loading message="Loading..." />
+  }
 
   const uhnwCount = cieClients.filter(c => c.client.type === 'UHNW').length
   const intlCount = clientPositions.filter(c => c.city !== 'Dubai').length

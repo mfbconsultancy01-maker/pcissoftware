@@ -1,13 +1,14 @@
 'use client'
 
-import React, { useMemo } from 'react'
+import React, { useMemo, useState, useEffect } from 'react'
 import {
-  areas, type AreaProfile, type AreaTransaction, type AreaInventory,
+  areas as staticAreas, type AreaProfile, type AreaTransaction, type AreaInventory,
   type PriceBreakdown, type BuyerDemographic, type RentalData,
   type ServiceChargeData, type SupplyPipelineProject, type MarketLiquidity,
   type RegulatoryInfo, type LifestyleAmenity, type CommunityProfile,
   type PriceTier, type SeasonalPattern, MONTHS,
 } from '@/lib/marketData'
+import { p1Api } from '@/lib/api'
 
 // ============================================================================
 // PCIS Bloomberg-Grade Area Deep-Dive Panel
@@ -157,8 +158,132 @@ function formatKm(km: number | undefined | null): string {
 // Main Component
 // ---------------------------------------------------------------------------
 
+// Convert API profile to AreaProfile shape
+function apiToAreaProfile(data: any): AreaProfile {
+  return {
+    id: `area-${(data.dldName || '').toLowerCase().replace(/\s+/g, '-')}`,
+    name: data.displayName || data.dldName || 'Unknown',
+    shortName: data.shortName || 'UNK',
+    coordinates: { lat: 25.2, lng: 55.27 },
+    demandScore: data.demandScore || 50,
+    demandTrend: data.demandTrend || 'stable',
+    demandChange: data.priceChange30d || 0,
+    avgPriceSqft: data.medianPriceSqft || data.avgPriceSqft || 0,
+    priceChange30d: data.priceChange30d || 0,
+    priceChange90d: 0,
+    priceChangeYoY: 0,
+    avgRentalYield: data.estimatedYield || 6.0,
+    totalInventory: data.totalTransactions || 0,
+    newListings30d: data.inventoryCount || 0,
+    transactionCount90d: data.totalTransactions || 0,
+    avgTransactionValue: data.avgTotalPrice || 0,
+    topPropertyType: data.propertyTypes?.[0]?.type || 'Apartment',
+    topBuyerNationality: '',
+    cashPercent: 35,
+    priceHistory: data.psfHistory || [],
+    demandHistory: Array.from({ length: 12 }, () => data.demandScore || 50),
+    volumeHistory: data.volumeHistory || [],
+    yieldHistory: [],
+    description: '',
+    keyDrivers: [],
+    riskFactors: [],
+    outlook: data.outlook || 'neutral',
+    outlookReason: '',
+    subAreas: [],
+    recentTransactions: (data.recentTransactions || []).map((t: any, i: number) => ({
+      id: `txn-${i}`,
+      date: t.date || '',
+      propertyType: t.type || 'Apartment',
+      bedrooms: t.bedrooms || 0,
+      size: t.sizeSqft || 0,
+      price: t.price || 0,
+      priceSqft: t.priceSqft || 0,
+      building: t.title?.split('|')[0]?.trim() || '',
+      isOffPlan: false,
+      buyerNationality: '',
+      paymentType: 'Cash',
+    })) as AreaTransaction[],
+    activeInventory: [] as AreaInventory[],
+    priceBreakdown: (data.bedroomBreakdown || []).map((b: any) => ({
+      type: `${b.bedrooms || 0} BR`,
+      avgPriceSqft: b.avgPsf || 0,
+      priceRange: { min: 0, max: 0 },
+      transactionCount: b.count || 0,
+    })) as PriceBreakdown[],
+    buyerDemographics: [] as BuyerDemographic[],
+    rental: {
+      avgRent: Math.round((data.medianPriceSqft || 2000) * (data.estimatedYield || 6) / 100 * 1000),
+      occupancyRate: 85,
+      rentChange: 2.5,
+    } as any,
+    serviceCharges: { avgPerSqft: (data.medianPriceSqft || 2000) > 2000 ? 30 : 20 } as any,
+    supplyPipeline: [] as SupplyPipelineProject[],
+    liquidity: {
+      liquidityScore: Math.min(100, Math.round(data.demandScore || 50)),
+      absorptionRate: 0.3,
+      avgDaysOnMarket: data.avgDaysOnMarket || 0,
+    } as any,
+    regulatory: { isFreehold: true } as any,
+    lifestyle: {} as any,
+    community: {
+      maturityLevel: (data.totalTransactions || 0) > 500 ? 'Established' : (data.totalTransactions || 0) > 100 ? 'Maturing' : 'Emerging',
+    } as any,
+    priceTiers: (data.priceTiers || []).map((t: any) => ({
+      tier: t.tier,
+      count: t.count,
+    })) as any[],
+    seasonalPattern: {} as any,
+    // Extended data from API
+    _apiData: data,
+  } as AreaProfile & { _apiData: any }
+}
+
 export default function AreaProfileView({ entityId }: { entityId: string }) {
-  const area = useMemo(() => areas.find(a => a.id === entityId), [entityId])
+  const [area, setArea] = useState<(AreaProfile & { _apiData?: any }) | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [apiData, setApiData] = useState<any>(null)
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      setLoading(true)
+      try {
+        // First try: fetch from API (works with DLD area names)
+        const result = await p1Api.getAreaProfile(entityId)
+        if (result?.data) {
+          setApiData(result.data)
+          setArea(apiToAreaProfile(result.data))
+          setLoading(false)
+          return
+        }
+      } catch (err) {
+        console.warn('[AreaProfile] API fetch failed, trying static data:', err)
+      }
+
+      // Fallback: try static areas (for legacy IDs like 'palm-jumeirah')
+      const staticMatch = staticAreas.find(a =>
+        a.id === entityId ||
+        a.name.toLowerCase() === entityId.toLowerCase() ||
+        a.name.toUpperCase() === entityId.toUpperCase()
+      )
+      if (staticMatch) {
+        setArea(staticMatch)
+      }
+      setLoading(false)
+    }
+
+    fetchProfile()
+  }, [entityId])
+
+  if (loading) {
+    return (
+      <div className="h-full flex items-center justify-center bg-pcis-bg/50">
+        <div className="text-center">
+          <div className="inline-block w-8 h-8 border-2 border-pcis-gold/20 border-t-pcis-gold rounded-full animate-spin mb-2"></div>
+          <span className="text-[10px] text-pcis-text-muted tracking-wider block">Loading area intelligence...</span>
+        </div>
+      </div>
+    )
+  }
 
   if (!area) {
     return (
@@ -257,6 +382,123 @@ export default function AreaProfileView({ entityId }: { entityId: string }) {
               <MetricCard label="Occupancy" value={`${rentalData?.occupancyRate || '—'}%`} sub="Rental" />
             </div>
           </div>
+
+          {/* ═══════════════════════════════════════════════════════════════════ */}
+          {/* 1b. DLD INTELLIGENCE (API-powered) */}
+          {/* ═══════════════════════════════════════════════════════════════════ */}
+          {apiData && (
+            <div className="grid grid-cols-3 gap-3">
+
+              {/* PSF Range */}
+              <div className="bg-white/[0.02] border border-pcis-border/10 rounded-xl p-3">
+                <SectionHeader title="PSF Range" subtitle={`${apiData.totalTransactions?.toLocaleString() || 0} DLD transactions`} />
+                <div className="space-y-2 mt-2">
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-pcis-text-muted">Median PSF</span>
+                    <span className="text-pcis-text font-bold tabular-nums">AED {apiData.medianPriceSqft?.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-pcis-text-muted">Average PSF</span>
+                    <span className="text-pcis-text tabular-nums">AED {apiData.avgPriceSqft?.toLocaleString()}</span>
+                  </div>
+                  {/* PSF Range Bar */}
+                  <div className="relative h-5 bg-white/[0.04] rounded mt-1">
+                    <div className="absolute top-0 h-full bg-pcis-gold/20 rounded"
+                      style={{
+                        left: `${Math.max(0, ((apiData.p10PriceSqft - apiData.minPriceSqft) / Math.max(apiData.maxPriceSqft - apiData.minPriceSqft, 1)) * 100)}%`,
+                        width: `${Math.max(5, ((apiData.p90PriceSqft - apiData.p10PriceSqft) / Math.max(apiData.maxPriceSqft - apiData.minPriceSqft, 1)) * 100)}%`,
+                      }} />
+                    <div className="absolute top-0 h-full w-0.5 bg-pcis-gold"
+                      style={{ left: `${((apiData.medianPriceSqft - apiData.minPriceSqft) / Math.max(apiData.maxPriceSqft - apiData.minPriceSqft, 1)) * 100}%` }} />
+                  </div>
+                  <div className="flex justify-between text-[8px] text-pcis-text-muted">
+                    <span>P10: {apiData.p10PriceSqft?.toLocaleString()}</span>
+                    <span>P90: {apiData.p90PriceSqft?.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-[10px] pt-1 border-t border-pcis-border/5">
+                    <span className="text-pcis-text-muted">Avg Size</span>
+                    <span className="text-pcis-text tabular-nums">{apiData.avgSizeSqft?.toLocaleString()} sqft</span>
+                  </div>
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-pcis-text-muted">Median Price</span>
+                    <span className="text-pcis-text tabular-nums">AED {(apiData.medianTotalPrice / 1000000).toFixed(1)}M</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Property Type Breakdown */}
+              <div className="bg-white/[0.02] border border-pcis-border/10 rounded-xl p-3">
+                <SectionHeader title="Property Types" subtitle="DLD transaction breakdown" />
+                <div className="space-y-1.5 mt-2">
+                  {(apiData.propertyTypes || []).map((t: any) => {
+                    const pct = apiData.totalTransactions > 0 ? Math.round((t.count / apiData.totalTransactions) * 100) : 0
+                    return (
+                      <div key={t.type} className="flex items-center gap-2">
+                        <span className="text-[9px] text-pcis-text-muted w-20 truncate">{t.type}</span>
+                        <div className="flex-1 h-1.5 bg-white/[0.04] rounded-full overflow-hidden">
+                          <div className="h-full bg-pcis-gold/40 rounded-full" style={{ width: `${pct}%` }} />
+                        </div>
+                        <span className="text-[9px] text-pcis-text font-bold tabular-nums w-8 text-right">{pct}%</span>
+                        <span className="text-[8px] text-pcis-text-muted tabular-nums w-12 text-right">{t.count}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+                {(apiData.bedroomBreakdown || []).length > 0 && (
+                  <>
+                    <div className="border-t border-pcis-border/5 mt-2 pt-2">
+                      <span className="text-[8px] text-pcis-text-muted uppercase tracking-wider">By Bedroom</span>
+                    </div>
+                    <div className="space-y-1 mt-1">
+                      {(apiData.bedroomBreakdown || []).slice(0, 5).map((b: any) => (
+                        <div key={b.bedrooms} className="flex justify-between text-[9px]">
+                          <span className="text-pcis-text-muted">{b.bedrooms === 0 ? 'Studio' : `${b.bedrooms} BR`}</span>
+                          <span className="text-pcis-text tabular-nums">{b.count} txns · AED {b.avgPsf?.toLocaleString()}/sqft</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Top Buildings / Price Tiers */}
+              <div className="bg-white/[0.02] border border-pcis-border/10 rounded-xl p-3">
+                {(apiData.topBuildings || []).length > 0 ? (
+                  <>
+                    <SectionHeader title="Top Buildings" subtitle="By transaction volume" />
+                    <div className="space-y-1.5 mt-2">
+                      {(apiData.topBuildings || []).slice(0, 8).map((b: any, i: number) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <span className="text-[8px] text-pcis-gold/50 w-3 text-right">{i + 1}</span>
+                          <span className="text-[9px] text-pcis-text flex-1 truncate">{b.name}</span>
+                          <span className="text-[8px] text-pcis-text-muted tabular-nums">{b.avgPsf?.toLocaleString()}/sqft</span>
+                          <span className="text-[8px] text-pcis-text-muted/50 tabular-nums">{b.transactions}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <SectionHeader title="Price Distribution" subtitle="Transaction value tiers" />
+                    <div className="space-y-1.5 mt-2">
+                      {(apiData.priceTiers || []).map((t: any) => {
+                        const maxCount = Math.max(...(apiData.priceTiers || []).map((p: any) => p.count), 1)
+                        return (
+                          <div key={t.tier} className="flex items-center gap-2">
+                            <span className="text-[9px] text-pcis-text-muted w-16 truncate">{t.tier}</span>
+                            <div className="flex-1 h-1.5 bg-white/[0.04] rounded-full overflow-hidden">
+                              <div className="h-full bg-pcis-gold/30 rounded-full" style={{ width: `${(t.count / maxCount) * 100}%` }} />
+                            </div>
+                            <span className="text-[9px] text-pcis-text font-bold tabular-nums w-8 text-right">{t.count}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* ═══════════════════════════════════════════════════════════════════ */}
           {/* 2. CHARTS SECTION — 2x2 Grid */}

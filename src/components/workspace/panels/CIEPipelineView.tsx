@@ -54,10 +54,7 @@ export default function CIEPipelineView(): React.ReactElement {
   const [dragClientId, setDragClientId] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<DealStage | null>(null)
 
-  // Loading guard AFTER all hook calls
-  if (loading && cieClients.length === 0) return <P1Loading message="Loading CIE data..." />
-
-  // Group CIE clients by deal stage
+  // Group CIE clients by deal stage — MUST be before loading guard (React hooks order)
   const stageGroups = useMemo(() => {
     const groups: Record<DealStage, CIEClient[]> = {
       'Lead In': [], 'Discovery': [], 'Viewing': [], 'Offer Made': [], 'Negotiation': [], 'Closed Won': [],
@@ -72,6 +69,9 @@ export default function CIEPipelineView(): React.ReactElement {
     Object.values(groups).forEach(arr => arr.sort((a, b) => b.overallCIEScore - a.overallCIEScore))
     return groups
   }, [cieClients])
+
+  // Loading guard — all hooks called above
+  if (loading && cieClients.length === 0) return <P1Loading message="Loading CIE data..." />
 
   return (
     <div className="h-full flex flex-col">
