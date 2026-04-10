@@ -407,6 +407,28 @@ export const p1Api = {
     return data
   },
 
+  // ── Signals ─────────────────────────────────────────────────────────────
+  getSignals: async (params?: { clientId?: string; limit?: number }) => {
+    const query = new URLSearchParams()
+    if (params?.clientId) query.set('clientId', params.clientId)
+    if (params?.limit) query.set('limit', String(params.limit))
+    const qs = query.toString() ? `?${query.toString()}` : ''
+    const data = await p1Request(`/api/signals${qs}`)
+    return data
+  },
+
+  // ── Engagement (batch) ─────────────────────────────────────────────────
+  getEngagementAll: async () => {
+    const data = await p1Request('/api/clients/engagement-all')
+    return data
+  },
+
+  // ── Predictions (batch) ────────────────────────────────────────────────
+  getPredictionsAll: async () => {
+    const data = await p1Request('/api/clients/predictions-all')
+    return data
+  },
+
   // ── Properties ──────────────────────────────────────────────────────────
   getProperties: async (params?: { area?: string; type?: string; page?: number }) => {
     const query = new URLSearchParams()
@@ -498,6 +520,35 @@ export const p1Api = {
     if (params?.days) query.set('days', String(params.days))
     const qs = query.toString() ? `?${query.toString()}` : ''
     const data = await p1Request(`/api/cie-agent/flags${qs}`)
+    return data
+  },
+
+  // ── CIE Cognitive Profiling (Claude-powered holistic analysis) ──────────
+
+  // Profile a single client (on-demand trigger)
+  profileClient: async (clientId: string) => {
+    const data = await p1Request(`/api/cie-agent/profile/${clientId}`, { method: 'POST' })
+    return data
+  },
+
+  // Profile multiple clients (batch, max 20)
+  profileClientBatch: async (clientIds: string[]) => {
+    const data = await p1Request('/api/cie-agent/profile-batch', {
+      method: 'POST',
+      body: JSON.stringify({ clientIds }),
+    })
+    return data
+  },
+
+  // Profile all INVESTOR-classified clients
+  profileAllInvestors: async () => {
+    const data = await p1Request('/api/cie-agent/profile-all-investors', { method: 'POST' })
+    return data
+  },
+
+  // Get stored CIE insights for a client (evidence trails, macro influence, advisor implications)
+  getCIEInsights: async (clientId: string) => {
+    const data = await p1Request(`/api/cie-agent/profile/${clientId}`)
     return data
   },
 

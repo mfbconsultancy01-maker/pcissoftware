@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { useCIEClients } from '@/lib/useCIEData'
+import { useCIEClients, useCIESignals } from '@/lib/useCIEData'
 import { pciscomSignals, DIMENSION_META, type PCISCOMSignal } from '@/lib/cieData'
 import { type Signal } from '@/lib/mockData'
 import { P1Loading } from '@/components/P1Loading'
@@ -203,15 +203,13 @@ function SignalDetailOverlay({
 
 export default function CIESignalsView() {
   const { data: liveCIEClients, loading } = useCIEClients()
+  const { data: liveSignals } = useCIESignals()
   const cieClients = liveCIEClients || []
-  const signals: Signal[] = []
+  const signals: Signal[] = liveSignals || []
 
   const [selectedTypes, setSelectedTypes] = useState<SignalType[]>([])
   const [pciscomOnly, setPciscomOnly] = useState(false)
   const [expandedSignal, setExpandedSignal] = useState<(Signal & { client: { id: string; name: string } }) | null>(null)
-
-  // Loading guard AFTER all hook calls
-  if (loading && cieClients.length === 0) return <P1Loading message="Loading CIE data..." />
 
   const allSignals = useMemo(() => {
     const crmSignals = signals
@@ -281,6 +279,9 @@ export default function CIESignalsView() {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
   }, [filteredSignals])
+
+  // Loading guard — all hooks called above
+  if (loading && cieClients.length === 0) return <P1Loading message="Loading CIE data..." />
 
   const sentimentGauge = (value: number) => {
     const normalized = Math.max(-1, Math.min(1, value))

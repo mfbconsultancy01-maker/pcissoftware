@@ -14,7 +14,7 @@ import {
   type PredictionPattern,
 } from '@/lib/mockData'
 import { P1Loading } from '@/components/P1Loading'
-import { useCIEClients, useMorningBriefing, useCIEAgentStatus, getCIESourceLabel, getCIESourceColor } from '@/lib/useCIEData'
+import { useCIEClients, useMorningBriefing, useCIEAgentStatus, useProfileAllInvestors, getCIESourceLabel, getCIESourceColor } from '@/lib/useCIEData'
 import { p1Api } from '@/lib/api'
 import { useWorkspaceNav, ClientLink } from '../useWorkspaceNav'
 
@@ -302,22 +302,6 @@ function CIESubPanelCards() {
       sub: 'AI-driven forecasts',
       color: '#f59e0b',
       onClick: () => nav.openCIEPredictions(),
-    },
-    {
-      code: 'C36', title: 'Client DNA',
-      desc: 'Single-page intelligence brief: archetype, cognitive traits, do\'s/don\'ts, meeting prep',
-      metric: `${cieClients.length} profiles`,
-      sub: 'Advisor cheat sheet',
-      color: '#a78bfa',
-      onClick: () => nav.openClient360AsTab(cieClients[0]?.client.id || ''),
-    },
-    {
-      code: 'CIM', title: 'Client Map',
-      desc: 'Global client map with archetype markers, CIE score rings, and connection arcs to HQ',
-      metric: `${cieClients.length} plotted`,
-      sub: 'MapLibre GL powered',
-      color: '#14B8A6',
-      onClick: () => nav.openCIEMap(),
     },
     {
       code: 'CIG', title: 'Client Grid',
@@ -933,8 +917,14 @@ export default function CIEDashboardView(): React.ReactElement {
   // ── Live Data Hook: replaces mock cieClients with real backend data ────
   const liveData = useCIEClients()
   const agentStatus = useCIEAgentStatus()
+  const profileAll = useProfileAllInvestors()
   const cieClients = liveData.data || []
   const dataSource = liveData.source
+
+  const handleProfileAll = async () => {
+    await profileAll.trigger()
+    liveData.refetch()
+  }
 
   if (liveData.loading && cieClients.length === 0) {
     return <P1Loading message="Loading CIE intelligence..." />
@@ -957,6 +947,19 @@ export default function CIEDashboardView(): React.ReactElement {
             </p>
           </div>
           <div className="flex items-center gap-3">
+            {/* Run CIE Profiling Button */}
+            <button
+              onClick={handleProfileAll}
+              disabled={profileAll.profiling}
+              className="text-[8px] font-semibold px-3 py-1 rounded-lg border transition-all disabled:opacity-50"
+              style={{
+                backgroundColor: profileAll.profiling ? 'transparent' : '#D4A57410',
+                borderColor: '#D4A57440',
+                color: '#D4A574',
+              }}
+            >
+              {profileAll.profiling ? 'Profiling...' : 'Run CIE Profiling'}
+            </button>
             {/* Data Source Badge */}
             <span className="text-[8px] font-mono px-2 py-0.5 rounded-full border"
               style={{

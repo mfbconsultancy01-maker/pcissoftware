@@ -16,10 +16,15 @@ import {
   type CognitiveProfile,
   type CognitiveScore,
   type DealStage,
+  type EngagementMetrics,
+  type Prediction,
+  type MomentumDirection,
+  type Signal,
   DEAL_STAGES,
 } from './mockData'
 import {
   type CIEClient,
+  type CIEInsights,
   type Archetype,
   DIMENSION_META,
 } from './cieData'
@@ -104,7 +109,15 @@ export function useCIEClients(): DataState<CIEClient[]> & { refetch: () => void 
     setState((prev) => ({ ...prev, loading: true }))
 
     try {
-      const response = await p1Api.getClients()
+      // Fetch clients, engagement, and predictions in parallel
+      const [response, engagementRes, predictionsRes] = await Promise.all([
+        p1Api.getClients(),
+        p1Api.getEngagementAll().catch(() => null),
+        p1Api.getPredictionsAll().catch(() => null),
+      ])
+
+      const engagementMap: Record<string, any> = engagementRes?.success ? engagementRes.data : {}
+      const predictionsMap: Record<string, any> = predictionsRes?.success ? predictionsRes.data : {}
 
       if (response?.success && response.data?.length > 0) {
         // Transform backend clients to CIEClient format
@@ -119,7 +132,16 @@ export function useCIEClients(): DataState<CIEClient[]> & { refetch: () => void 
               trend: (s.trend || 'stable').toLowerCase() as 'rising' | 'falling' | 'stable',
             }))
 
-            const archetype = deriveArchetypeFromScores(scores)
+            // Extract CIE insights (Claude-generated profiling) if available
+            const rawCieInsights = profile?.cieInsights as CIEInsights | null | undefined
+            const cieInsights: CIEInsights | null = rawCieInsights && rawCieInsights.dimensions
+              ? rawCieInsights
+              : null
+
+            // Use CIE archetype if available, otherwise derive from scores
+            const archetype: Archetype = cieInsights?.archetype
+              ? (cieInsights.archetype as Archetype)
+              : deriveArchetypeFromScores(scores)
             const sorted = [...scores].sort((a, b) => b.value - a.value)
 
             // Map backend status to a valid DealStage for the pipeline view
@@ -148,26 +170,35 @@ export function useCIEClients(): DataState<CIEClient[]> & { refetch: () => void 
               dealStageChangedAt: backendClient.updatedAt || new Date().toISOString(),
             }
 
+            // Build CognitiveProfile — enrich from CIE insights when available
             const cognitiveProfile: CognitiveProfile | null = scores.length > 0 ? {
               clientId: backendClient.id,
               scores,
-              summary: '',
-              keyTraits: [],
-              approachStrategy: '',
+              summary: cieInsights?.overallNarrative || '',
+              keyTraits: cieInsights?.topRecommendations || [],
+              approachStrategy: cieInsights?.archetypeReasoning || '',
               riskFactors: [],
-              communicationTips: [],
-              lastComputed: profile?.computedAt || new Date().toISOString(),
+              communicationTips: cieInsights?.topRecommendations || [],
+              lastComputed: cieInsights?.profiledAt || profile?.computedAt || new Date().toISOString(),
             } : null
 
             const overallCIEScore = profile
               ? Math.round(Number(profile.confidenceOverall || 0) * 100)
               : 0
 
+            // ── Map backend engagement metrics to frontend EngagementMetrics ──
+            const rawEng = engagementMap[backendClient.id]
+            const engagement = rawEng ? mapBackendEngagement(backendClient.id, rawEng) : null
+
+            // ── Map backend prediction to frontend Prediction ──
+            const rawPred = predictionsMap[backendClient.id]
+            const prediction = rawPred ? mapBackendPrediction(backendClient.id, rawPred) : null
+
             return {
               client,
               profile: cognitiveProfile,
-              engagement: null,
-              prediction: null,
+              engagement,
+              prediction,
               lifecycle: null,
               nextTouch: null,
               archetype,
@@ -175,6 +206,7 @@ export function useCIEClients(): DataState<CIEClient[]> & { refetch: () => void 
               bottomDimensions: sorted.slice(-3).reverse(),
               overallCIEScore,
               signalCount: backendClient._count?.signals || 0,
+              cieInsights,
             } as CIEClient
             } catch (clientErr) {
               console.error('[CIE] Failed to transform client:', backendClient?.id, clientErr)
@@ -398,6 +430,55 @@ export function useClientTimeline(clientId: string | null): DataState<any[]> {
 }
 
 // ============================================================================
+// useCIESignals — Fetch signal records from the backend
+// ============================================================================
+
+export function useCIESignals(): DataState<Signal[]> {
+  const [state, setState] = useState<DataState<Signal[]>>({
+    data: null,
+    loading: true,
+    error: null,
+    source: 'live',
+  })
+
+  useEffect(() => {
+    p1Api.getSignals({ limit: 100 })
+      .then((response) => {
+        if (response?.success && response.data?.length > 0) {
+          const mapped: Signal[] = response.data.map((raw: any) => ({
+            id: raw.id,
+            clientId: raw.clientId || raw.client?.id || '',
+            type: mapSignalTypeCode(raw.signalType?.code || raw.signalType?.category || ''),
+            content: raw.value?.content || raw.value?.summary || raw.value?.note || raw.signalType?.name || 'Signal recorded',
+            timestamp: raw.occurredAt || raw.createdAt || new Date().toISOString(),
+            impact: raw.value?.impact || [],
+          }))
+          setState({ data: mapped, loading: false, error: null, source: 'live' })
+        } else {
+          setState({ data: [], loading: false, error: null, source: 'live' })
+        }
+      })
+      .catch(() => {
+        setState({ data: [], loading: false, error: null, source: 'live' })
+      })
+  }, [])
+
+  return state
+}
+
+function mapSignalTypeCode(code: string): Signal['type'] {
+  const c = code.toUpperCase()
+  if (c.includes('VIEW') || c.includes('PROPERTY_VIEW')) return 'viewing'
+  if (c.includes('INQUIRY') || c.includes('QUESTION')) return 'inquiry'
+  if (c.includes('MEETING') || c.includes('CALL')) return 'meeting'
+  if (c.includes('OFFER') || c.includes('BID')) return 'offer'
+  if (c.includes('FEEDBACK') || c.includes('REVIEW')) return 'feedback'
+  if (c.includes('REFERRAL')) return 'referral'
+  if (c.includes('FINANCIAL') || c.includes('BUDGET') || c.includes('MORTGAGE')) return 'financial'
+  return 'lifecycle'
+}
+
+// ============================================================================
 // Source Label (for UI badges)
 // ============================================================================
 
@@ -441,6 +522,144 @@ function mapIntentToCategory(intent: string | null): Client['category'] {
   if (intent === 'END_USE') return 'Lifestyle'
   if (intent === 'MIXED') return 'Portfolio Builder'
   return 'Lifestyle'
+}
+
+// ============================================================================
+// useProfileClient — Trigger CIE cognitive profiling for a client
+// ============================================================================
+
+interface ProfileAction {
+  profiling: boolean
+  result: any | null
+  error: string | null
+  trigger: (...args: any[]) => Promise<void>
+}
+
+export function useProfileClient(): ProfileAction {
+  const [profiling, setProfiling] = useState(false)
+  const [result, setResult] = useState<any | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const trigger = useCallback(async (clientId: string) => {
+    setProfiling(true)
+    setResult(null)
+    setError(null)
+
+    try {
+      const response = await p1Api.profileClient(clientId)
+      if (response?.success) {
+        setResult(response.data)
+      } else {
+        setError(response?.error || 'Profiling failed')
+      }
+    } catch (err: any) {
+      setError(err.message || 'Network error')
+    } finally {
+      setProfiling(false)
+    }
+  }, [])
+
+  return { profiling, result, error, trigger }
+}
+
+// ============================================================================
+// useProfileAllInvestors — Trigger CIE profiling for all investors
+// ============================================================================
+
+export function useProfileAllInvestors(): ProfileAction {
+  const [profiling, setProfiling] = useState(false)
+  const [result, setResult] = useState<any | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const trigger = useCallback(async () => {
+    setProfiling(true)
+    setResult(null)
+    setError(null)
+
+    try {
+      const response = await p1Api.profileAllInvestors()
+      if (response?.success) {
+        setResult(response.data)
+      } else {
+        setError(response?.error || 'Profiling failed')
+      }
+    } catch (err: any) {
+      setError(err.message || 'Network error')
+    } finally {
+      setProfiling(false)
+    }
+  }, [])
+
+  return { profiling, result, error, trigger }
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+// ============================================================================
+// Backend → Frontend Engagement/Prediction Mappers
+// ============================================================================
+
+function mapBackendEngagement(clientId: string, raw: any): EngagementMetrics {
+  // Map backend engagementStatus to frontend EngagementStatus
+  const statusMap: Record<string, EngagementMetrics['status']> = {
+    thriving: 'thriving',
+    active: 'active',
+    cooling: 'cooling',
+    cold: 'cold',
+    dormant: 'dormant',
+    new: 'active', // frontend doesn't have 'new', map to 'active'
+  }
+
+  // Map backend trend to frontend MomentumDirection
+  const momentumMap: Record<string, MomentumDirection> = {
+    accelerating: 'heating',
+    stable: 'stable',
+    decaying: 'cooling',
+    critical: 'cooling',
+  }
+
+  const decayRate = Number(raw.decayRate || 0)
+  const engagementScore = Math.round((1 - decayRate) * 100)
+  const baselineVelocity = Number(raw.baselineVelocity || 0)
+  const expectedInterval = baselineVelocity > 0 ? Math.round(30 / baselineVelocity) : 30
+
+  return {
+    clientId,
+    status: statusMap[raw.engagementStatus] || 'dormant',
+    momentum: momentumMap[raw.trend] || 'stable',
+    currentVelocity: Number(raw.currentVelocity || 0),
+    baselineVelocity,
+    decayRate: Math.round(decayRate * 100),
+    daysSinceContact: Number(raw.daysSinceLastSignal || 0),
+    expectedInterval,
+    engagementScore,
+    readinessScore: 0, // readiness comes from predictions, not engagement
+  }
+}
+
+function mapBackendPrediction(clientId: string, raw: any): Prediction | null {
+  const patterns = raw.patterns || []
+  if (patterns.length === 0) return null
+
+  // Use the highest-probability pattern
+  const top = patterns[0]
+
+  const momentumMap: Record<string, MomentumDirection> = {
+    heating: 'heating',
+    cooling: 'cooling',
+    stable: 'stable',
+  }
+
+  return {
+    clientId,
+    pattern: top.pattern,
+    confidence: Math.round((top.probability || 0) * 100),
+    momentum: momentumMap[raw.momentumDirection] || 'stable',
+    description: top.description || top.advisorAction || '',
+    detectedAt: raw.computedAt || new Date().toISOString(),
+  }
 }
 
 function mapStatusToDealStage(status: string): DealStage {

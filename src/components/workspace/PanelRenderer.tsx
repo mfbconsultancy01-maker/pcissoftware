@@ -52,7 +52,7 @@ import CIESignalsView from './panels/CIESignalsView'
 import CIEComparatorView from './panels/CIEComparatorView'
 import CIEEngagementView from './panels/CIEEngagementView'
 import CIEPredictionsView from './panels/CIEPredictionsView'
-import CIEMapView from './panels/CIEMapView'
+// CIEMapView removed — panel deprecated
 import CIEGridView from './panels/CIEGridView'
 import CIEPipelineView from './panels/CIEPipelineView'
 import ENGDashboardView from './panels/ENGDashboardView'
@@ -75,7 +75,7 @@ import FORGEDashboardNewView from './panels/FORGEDashboardNewView'
 import FORGEClientDossierNewView from './panels/FORGEClientDossierNewView'
 import SCOUTDashboardView from './panels/SCOUTDashboardView'
 import NewsView from './panels/NewsView'
-import Client360View from './panels/Client360View'
+// Client360View removed — panel deprecated
 import PipelineView from './panels/PipelineView'
 import NotificationsCentreView from './panels/NotificationsCentreView'
 import CommandCentreView from './panels/CommandCentreView'
@@ -497,14 +497,6 @@ export default function PanelRenderer({ panel }: { panel: Panel }) {
     )
   }
 
-  if (panel.type === 'cie-map') {
-    return (
-      <PanelContent>
-        <CIEMapView />
-      </PanelContent>
-    )
-  }
-
   if (panel.type === 'cie-grid') {
     return (
       <PanelContent label="Client Grid">
@@ -696,14 +688,6 @@ export default function PanelRenderer({ panel }: { panel: Panel }) {
     return (
       <PanelContent>
         <NewsView />
-      </PanelContent>
-    )
-  }
-
-  if (panel.type === 'client-360') {
-    return (
-      <PanelContent>
-        <Client360View entityId={panel.entityId} />
       </PanelContent>
     )
   }
