@@ -461,41 +461,116 @@ export default function AreaProfileView({ entityId }: { entityId: string }) {
                 )}
               </div>
 
-              {/* Top Buildings / Price Tiers */}
+              {/* Top Projects */}
               <div className="bg-white/[0.02] border border-pcis-border/10 rounded-xl p-3">
-                {(apiData.topBuildings || []).length > 0 ? (
-                  <>
-                    <SectionHeader title="Top Buildings" subtitle="By transaction volume" />
-                    <div className="space-y-1.5 mt-2">
-                      {(apiData.topBuildings || []).slice(0, 8).map((b: any, i: number) => (
-                        <div key={i} className="flex items-center gap-2">
-                          <span className="text-[8px] text-pcis-gold/50 w-3 text-right">{i + 1}</span>
-                          <span className="text-[9px] text-pcis-text flex-1 truncate">{b.name}</span>
-                          <span className="text-[8px] text-pcis-text-muted tabular-nums">{b.avgPsf?.toLocaleString()}/sqft</span>
-                          <span className="text-[8px] text-pcis-text-muted/50 tabular-nums">{b.transactions}</span>
+                <SectionHeader title="Top Projects" subtitle="By transaction volume" />
+                <div className="space-y-1.5 mt-2">
+                  {(apiData.topBuildings || []).slice(0, 8).map((b: any, i: number) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="text-[8px] text-pcis-gold/50 w-3 text-right">{i + 1}</span>
+                      <span className="text-[9px] text-pcis-text flex-1 truncate">{b.name}</span>
+                      <span className="text-[8px] text-pcis-text-muted tabular-nums">{b.avgPsf?.toLocaleString()}/sqft</span>
+                      <span className="text-[8px] text-pcis-text-muted/50 tabular-nums">{b.transactions}</span>
+                    </div>
+                  ))}
+                  {(apiData.topBuildings || []).length === 0 && (
+                    <span className="text-[9px] text-pcis-text-muted">No project data available</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Row 2: Price Tiers + Transaction Types + Size Brackets */}
+            <div className="grid grid-cols-3 gap-3">
+              {/* Price Tiers */}
+              <div className="bg-white/[0.02] border border-pcis-border/10 rounded-xl p-3">
+                <SectionHeader title="Price Distribution" subtitle="Transaction value tiers" />
+                <div className="space-y-1.5 mt-2">
+                  {(apiData.priceTiers || []).map((t: any) => {
+                    const maxCount = Math.max(...(apiData.priceTiers || []).map((p: any) => p.count), 1)
+                    return (
+                      <div key={t.tier} className="flex items-center gap-2">
+                        <span className="text-[9px] text-pcis-text-muted w-16 truncate">{t.tier}</span>
+                        <div className="flex-1 h-1.5 bg-white/[0.04] rounded-full overflow-hidden">
+                          <div className="h-full bg-pcis-gold/30 rounded-full" style={{ width: `${(t.count / maxCount) * 100}%` }} />
                         </div>
-                      ))}
+                        <span className="text-[9px] text-pcis-text font-bold tabular-nums w-8 text-right">{t.count}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Transaction Types */}
+              <div className="bg-white/[0.02] border border-pcis-border/10 rounded-xl p-3">
+                <SectionHeader title="Transaction Types" subtitle="DLD registration categories" />
+                <div className="space-y-1.5 mt-2">
+                  {(apiData.transactionTypes || []).slice(0, 6).map((t: any) => {
+                    const total = (apiData.transactionTypes || []).reduce((s: number, x: any) => s + x.count, 0)
+                    const pct = total > 0 ? Math.round((t.count / total) * 100) : 0
+                    const label = (t.type || '').replace('Pre-Registration', 'Pre-Reg').replace('Registration', 'Reg').replace('Portfolio ', '')
+                    return (
+                      <div key={t.type} className="flex items-center gap-2">
+                        <span className="text-[9px] text-pcis-text-muted w-24 truncate">{label}</span>
+                        <div className="flex-1 h-1.5 bg-white/[0.04] rounded-full overflow-hidden">
+                          <div className="h-full bg-blue-500/30 rounded-full" style={{ width: `${pct}%` }} />
+                        </div>
+                        <span className="text-[9px] text-pcis-text font-bold tabular-nums w-8 text-right">{pct}%</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Size Brackets */}
+              <div className="bg-white/[0.02] border border-pcis-border/10 rounded-xl p-3">
+                <SectionHeader title="PSF by Size" subtitle="Price efficiency by unit size" />
+                <div className="space-y-1.5 mt-2">
+                  {(apiData.sizeBrackets || []).map((s: any) => (
+                    <div key={s.bracket} className="flex items-center gap-2">
+                      <span className="text-[9px] text-pcis-text-muted w-28 truncate">{s.bracket}</span>
+                      <span className="text-[9px] text-pcis-text font-bold tabular-nums flex-1 text-right">{s.avgPsf?.toLocaleString()}</span>
+                      <span className="text-[8px] text-pcis-text-muted/50 tabular-nums w-8 text-right">{s.count}</span>
                     </div>
-                  </>
-                ) : (
-                  <>
-                    <SectionHeader title="Price Distribution" subtitle="Transaction value tiers" />
-                    <div className="space-y-1.5 mt-2">
-                      {(apiData.priceTiers || []).map((t: any) => {
-                        const maxCount = Math.max(...(apiData.priceTiers || []).map((p: any) => p.count), 1)
-                        return (
-                          <div key={t.tier} className="flex items-center gap-2">
-                            <span className="text-[9px] text-pcis-text-muted w-16 truncate">{t.tier}</span>
-                            <div className="flex-1 h-1.5 bg-white/[0.04] rounded-full overflow-hidden">
-                              <div className="h-full bg-pcis-gold/30 rounded-full" style={{ width: `${(t.count / maxCount) * 100}%` }} />
-                            </div>
-                            <span className="text-[9px] text-pcis-text font-bold tabular-nums w-8 text-right">{t.count}</span>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </>
-                )}
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ═══════════════════════════════════════════════════════════════════ */}
+          {/* 1c. RECENT DLD TRANSACTIONS */}
+          {/* ═══════════════════════════════════════════════════════════════════ */}
+          {apiData && (apiData.recentTransactions || []).length > 0 && (
+            <div className="bg-white/[0.02] border border-pcis-border/10 rounded-xl p-3">
+              <SectionHeader title="Recent DLD Transactions" subtitle={`Latest ${(apiData.recentTransactions || []).length} registered`} />
+              <div className="mt-2 overflow-x-auto">
+                <table className="w-full text-[9px]">
+                  <thead>
+                    <tr className="text-pcis-text-muted border-b border-pcis-border/10">
+                      <th className="text-left py-1 font-normal">Type</th>
+                      <th className="text-left py-1 font-normal">Project</th>
+                      <th className="text-right py-1 font-normal">BR</th>
+                      <th className="text-right py-1 font-normal">Size</th>
+                      <th className="text-right py-1 font-normal">Price</th>
+                      <th className="text-right py-1 font-normal">PSF</th>
+                      <th className="text-left py-1 font-normal pl-2">DLD Type</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(apiData.recentTransactions || []).map((t: any, i: number) => (
+                      <tr key={i} className="border-b border-pcis-border/5 hover:bg-white/[0.02]">
+                        <td className="py-1 text-pcis-text-muted">{t.type}</td>
+                        <td className="py-1 text-pcis-text truncate max-w-[140px]">{t.project || '—'}</td>
+                        <td className="py-1 text-pcis-text text-right tabular-nums">{t.bedrooms ?? '—'}</td>
+                        <td className="py-1 text-pcis-text text-right tabular-nums">{Math.round(t.sizeSqft || 0).toLocaleString()}</td>
+                        <td className="py-1 text-pcis-text font-bold text-right tabular-nums">AED {(t.price / 1000000).toFixed(2)}M</td>
+                        <td className="py-1 text-pcis-text text-right tabular-nums">{Math.round(t.priceSqft).toLocaleString()}</td>
+                        <td className="py-1 text-pcis-text-muted pl-2 truncate max-w-[100px]">{(t.txnType || '').replace('Pre-Registration', 'Pre-Reg').replace('Registration', 'Reg') || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
