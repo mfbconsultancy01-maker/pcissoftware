@@ -16,6 +16,20 @@ interface ScoutEnrichment {
   areaPropertyCount: number | null
 }
 
+interface MarketIntel {
+  pricePercentile: number | null
+  areaMedianPsf: number | null
+  areaMinPsf: number | null
+  areaMaxPsf: number | null
+  areaTotalTransactions: number | null
+  areaAvgTotalPrice: number | null
+  askingToClosingRatio: number | null
+  avgDaysOnMarket: number | null
+  lifecycleStage: string | null
+  priceChange30d: number | null
+  priceChange90d: number | null
+}
+
 interface PriceHistoryEntry {
   price: number
   date: string
@@ -46,6 +60,7 @@ interface MyListing {
   listedAt: string | null
   lastUpdated: string | null
   scout: ScoutEnrichment
+  marketIntel?: MarketIntel
   priceHistory: PriceHistoryEntry[]
 }
 
@@ -107,6 +122,15 @@ function getDemandLabel(score: number | null): { text: string; cls: string } {
   return { text: 'COLD', cls: 'bg-white/[0.05] text-white/40 border border-white/[0.08]' }
 }
 
+function getPercentileLabel(p: number | null): { text: string; color: string } {
+  if (p === null) return { text: '—', color: 'text-white/30' }
+  if (p >= 80) return { text: 'Premium', color: 'text-purple-400' }
+  if (p >= 60) return { text: 'Above Avg', color: 'text-amber-400' }
+  if (p >= 40) return { text: 'Market Rate', color: 'text-white/70' }
+  if (p >= 20) return { text: 'Below Avg', color: 'text-emerald-400' }
+  return { text: 'Value', color: 'text-emerald-300' }
+}
+
 // ── Main Component ───────────────────────────────────────────────────────
 
 export default function MyListingsView() {
@@ -116,6 +140,7 @@ export default function MyListingsView() {
   const [sortBy, setSortBy] = useState<SortKey>('listedAt')
   const [filterType, setFilterType] = useState<string>('all')
   const [filterArea, setFilterArea] = useState<string>('all')
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -163,6 +188,12 @@ export default function MyListingsView() {
     return Math.round(scored.reduce((s, l) => s + (l.scout.opportunityScore || 0), 0) / scored.length)
   }, [filtered])
 
+  const portfolioYield = useMemo(() => {
+    const withYield = filtered.filter(l => l.scout.estimatedYield !== null)
+    if (withYield.length === 0) return null
+    return (withYield.reduce((s, l) => s + (l.scout.estimatedYield || 0), 0) / withYield.length).toFixed(1)
+  }, [filtered])
+
   return (
     <div className="h-full flex flex-col">
       {/* ── Header ── */}
@@ -182,6 +213,14 @@ export default function MyListingsView() {
               <span className="text-[8px] text-pcis-text-muted/60 uppercase tracking-wider block">Portfolio</span>
               <span className="text-[11px] font-bold tabular-nums text-pcis-gold">
                 {formatPrice(summary.totalValue)}
+              </span>
+            </div>
+          )}
+          {portfolioYield !== null && (
+            <div className="text-right">
+              <span className="text-[8px] text-pcis-text-muted/60 uppercase tracking-wider block">Avg Yield</span>
+              <span className="text-[11px] font-bold tabular-nums text-emerald-400">
+                {portfolioYield}%
               </span>
             </div>
           )}
@@ -277,7 +316,12 @@ export default function MyListingsView() {
         ) : (
           <div className="grid grid-cols-2 gap-3 pr-2">
             {filtered.map(listing => (
-              <ListingCard key={listing.id} listing={listing} />
+              <ListingCard
+                key={listing.id}
+                listing={listing}
+                expanded={expandedId === listing.id}
+                onToggle={() => setExpandedId(expandedId === listing.id ? null : listing.id)}
+              />
             ))}
           </div>
         )}
@@ -305,13 +349,22 @@ export default function MyListingsView() {
 
 // ── Listing Card ─────────────────────────────────────────────────────────
 
-function ListingCard({ listing }: { listing: MyListing }) {
+function ListingCard({ listing, expanded, onToggle }: {
+  listing: MyListing
+  expanded: boolean
+  onToggle: () => void
+}) {
   const demand = getDemandLabel(listing.scout.areaDemandScore)
   const score = listing.scout.opportunityScore
+  const intel = listing.marketIntel
+  const percentile = getPercentileLabel(intel?.pricePercentile ?? null)
 
   return (
-    <div className="bg-white/[0.02] border border-white/[0.04] rounded-lg p-3 space-y-2.5 group hover:border-white/[0.08] transition-all">
-      {/* Top: Type badge + Score */}
+    <div
+      className="bg-white/[0.02] border border-white/[0.04] rounded-lg p-3 space-y-2.5 group hover:border-white/[0.08] transition-all cursor-pointer"
+      onClick={onToggle}
+    >
+      {/* Top: Title + Score */}
       <div className="flex items-start justify-between">
         <div className="space-y-1 flex-1 min-w-0 mr-2">
           <p className="text-[10px] font-semibold text-white/90 leading-tight line-clamp-2">
@@ -346,11 +399,16 @@ function ListingCard({ listing }: { listing: MyListing }) {
             <span className="text-[8px] text-white/40 uppercase tracking-wider">PSF</span>
             <span className="text-[9px] font-semibold text-white/80 tabular-nums">
               {listing.currency} {listing.pricePerSqft.toLocaleString()}
+              {listing.scout.areaAvgPricePerSqft && (
+                <span className="text-white/30 ml-1">
+                  (avg {listing.scout.areaAvgPricePerSqft.toLocaleString()})
+                </span>
+              )}
             </span>
           </div>
         )}
 
-        {/* Price bar (visual relative to area avg) */}
+        {/* Price position bar */}
         {listing.scout.priceVsAreaAvg !== null && (
           <div className="h-1.5 bg-white/[0.05] rounded-full overflow-hidden">
             <div
@@ -387,6 +445,119 @@ function ListingCard({ listing }: { listing: MyListing }) {
         </div>
       </div>
 
+      {/* ── Expanded: Market Intelligence Detail ── */}
+      {expanded && (
+        <div className="space-y-2.5 pt-1 border-t border-white/[0.06]">
+          {/* Market Position */}
+          {intel && (intel.pricePercentile !== null || intel.areaTotalTransactions !== null) && (
+            <div>
+              <span className="text-[7px] text-pcis-gold/60 uppercase tracking-wider font-semibold block mb-1.5">
+                Market Position
+              </span>
+              <div className="grid grid-cols-3 gap-2">
+                {intel.pricePercentile !== null && (
+                  <div>
+                    <span className="text-[7px] text-white/30 uppercase tracking-wider block">Position</span>
+                    <span className={`text-[9px] font-bold ${percentile.color}`}>{percentile.text}</span>
+                    <span className="text-[7px] text-white/20 block">P{intel.pricePercentile}</span>
+                  </div>
+                )}
+                {intel.areaTotalTransactions !== null && (
+                  <div>
+                    <span className="text-[7px] text-white/30 uppercase tracking-wider block">DLD Txns</span>
+                    <span className="text-[9px] font-bold text-white/70 tabular-nums">
+                      {intel.areaTotalTransactions.toLocaleString()}
+                    </span>
+                  </div>
+                )}
+                {intel.areaAvgTotalPrice !== null && (
+                  <div>
+                    <span className="text-[7px] text-white/30 uppercase tracking-wider block">Area Avg</span>
+                    <span className="text-[9px] font-bold text-white/70 tabular-nums">
+                      {formatPrice(intel.areaAvgTotalPrice)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* PSF Range Visualization */}
+          {intel && intel.areaMinPsf !== null && intel.areaMaxPsf !== null && listing.pricePerSqft && (
+            <div>
+              <span className="text-[7px] text-pcis-gold/60 uppercase tracking-wider font-semibold block mb-1">
+                PSF Range in Area
+              </span>
+              <div className="relative h-2 bg-white/[0.05] rounded-full overflow-hidden">
+                {/* Median marker */}
+                {intel.areaMedianPsf && intel.areaMaxPsf > intel.areaMinPsf && (
+                  <div
+                    className="absolute top-0 w-px h-full bg-white/20"
+                    style={{ left: `${((intel.areaMedianPsf - intel.areaMinPsf) / (intel.areaMaxPsf - intel.areaMinPsf)) * 100}%` }}
+                  />
+                )}
+                {/* This listing's position */}
+                <div
+                  className="absolute top-0 w-1.5 h-full bg-pcis-gold rounded-full"
+                  style={{
+                    left: `${Math.min(100, Math.max(0,
+                      ((listing.pricePerSqft - intel.areaMinPsf) / (intel.areaMaxPsf - intel.areaMinPsf)) * 100
+                    ))}%`
+                  }}
+                />
+              </div>
+              <div className="flex justify-between mt-0.5">
+                <span className="text-[7px] text-white/20 tabular-nums">{intel.areaMinPsf.toLocaleString()}</span>
+                <span className="text-[7px] text-white/20 tabular-nums">{intel.areaMaxPsf.toLocaleString()}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Price Trends & Lifecycle (when available from snapshots) */}
+          {intel && (intel.priceChange30d !== null || intel.lifecycleStage || intel.askingToClosingRatio !== null) && (
+            <div>
+              <span className="text-[7px] text-pcis-gold/60 uppercase tracking-wider font-semibold block mb-1.5">
+                Area Trends
+              </span>
+              <div className="grid grid-cols-3 gap-2">
+                {intel.priceChange30d !== null && (
+                  <div>
+                    <span className="text-[7px] text-white/30 uppercase tracking-wider block">30d Δ</span>
+                    <span className={`text-[9px] font-bold tabular-nums ${intel.priceChange30d > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {intel.priceChange30d > 0 ? '+' : ''}{intel.priceChange30d.toFixed(1)}%
+                    </span>
+                  </div>
+                )}
+                {intel.askingToClosingRatio !== null && (
+                  <div>
+                    <span className="text-[7px] text-white/30 uppercase tracking-wider block">Ask/Close</span>
+                    <span className="text-[9px] font-bold text-white/70 tabular-nums">
+                      {intel.askingToClosingRatio.toFixed(2)}
+                    </span>
+                  </div>
+                )}
+                {intel.lifecycleStage && (
+                  <div>
+                    <span className="text-[7px] text-white/30 uppercase tracking-wider block">Stage</span>
+                    <span className="text-[8px] font-bold text-white/60 uppercase">{intel.lifecycleStage}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Capital Appreciation */}
+          {listing.scout.capitalAppreciation !== null && (
+            <div className="flex justify-between items-center">
+              <span className="text-[7px] text-white/30 uppercase tracking-wider">Est. Appreciation (Annual)</span>
+              <span className={`text-[9px] font-bold tabular-nums ${listing.scout.capitalAppreciation > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                {listing.scout.capitalAppreciation > 0 ? '+' : ''}{listing.scout.capitalAppreciation.toFixed(1)}%
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Specs + meta */}
       <div className="flex items-center justify-between pt-1 border-t border-white/[0.04]">
         <div className="flex gap-2 text-[8px] text-white/40">
@@ -396,8 +567,13 @@ function ListingCard({ listing }: { listing: MyListing }) {
         <div className="flex items-center gap-2">
           <span className="text-[8px] text-white/30 tabular-nums">{formatDate(listing.listedAt)}</span>
           {listing.sourceUrl && (
-            <a href={listing.sourceUrl} target="_blank" rel="noopener noreferrer"
-              className="text-[7px] text-pcis-gold/50 hover:text-pcis-gold transition-colors uppercase tracking-wider">
+            <a
+              href={listing.sourceUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[7px] text-pcis-gold/50 hover:text-pcis-gold transition-colors uppercase tracking-wider"
+              onClick={e => e.stopPropagation()}
+            >
               Source
             </a>
           )}
@@ -413,6 +589,13 @@ function ListingCard({ listing }: { listing: MyListing }) {
               {(ph.change || 0) > 0 ? '+' : ''}{(ph.change || 0).toFixed(1)}%
             </span>
           ))}
+        </div>
+      )}
+
+      {/* Expand hint */}
+      {!expanded && intel && (intel.pricePercentile !== null || intel.areaTotalTransactions !== null) && (
+        <div className="text-center">
+          <span className="text-[7px] text-white/15 uppercase tracking-wider">Click for market intel ↓</span>
         </div>
       )}
     </div>
