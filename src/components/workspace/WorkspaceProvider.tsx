@@ -37,7 +37,6 @@ export type PanelType =
   | 'buyer-demographics'
   | 'top-transactions'
   | 'building-analytics'
-  | 'price-map'
   | 'comparables'
   | 'price-trends'
   | 'valuation-matrix'
@@ -191,7 +190,6 @@ export const PANEL_REGISTRY: Record<PanelType, { title: string; icon: string; sh
   'buyer-demographics':  { title: 'Buyer Demographics',  icon: 'BUY' },
   'top-transactions':    { title: 'Top Transactions',    icon: 'TOP' },
   'building-analytics':  { title: 'Building Analytics',  icon: 'BLD' },
-  'price-map':           { title: 'Price Intelligence',   icon: 'PRC' },
   'comparables':         { title: 'Comparables Engine',  icon: 'CMP' },
   'price-trends':        { title: 'Price Trends',        icon: 'TRD' },
   'valuation-matrix':    { title: 'Valuation Matrix',    icon: 'VAL' },

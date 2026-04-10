@@ -52,7 +52,6 @@ const ENGINES: EngineInfo[] = [
       { type: 'area-grid', code: 'ARE', name: 'Area Intelligence', description: 'Grid view of all Dubai areas with demand, price, yield metrics' },
       { type: 'transaction-feed', code: 'TXN', name: 'Transaction Feed', description: 'Live transaction data feed with filtering' },
       { type: 'volume-analysis', code: 'VOL', name: 'Volume Analysis', description: 'Transaction volume trends by area and property type' },
-      { type: 'price-map', code: 'PRC', name: 'Price Intelligence', description: 'Price per sqft analysis across Dubai areas' },
       { type: 'comparables', code: 'CMP', name: 'Comparables Engine', description: 'Property comparison and valuation benchmarking' },
       { type: 'price-trends', code: 'TRD', name: 'Price Trends', description: 'Historical and projected price movements' },
       { type: 'offplan-feed', code: 'OFP', name: 'Off-Plan Projects', description: 'New development launches and off-plan opportunities' },

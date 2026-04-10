@@ -26,7 +26,6 @@ import VolumeAnalysisView from './panels/VolumeAnalysisView'
 import BuyerDemographicsView from './panels/BuyerDemographicsView'
 import TopTransactionsView from './panels/TopTransactionsView'
 import BuildingAnalyticsView from './panels/BuildingAnalyticsView'
-import PriceMapView from './panels/PriceMapView'
 import ComparablesView from './panels/ComparablesView'
 import PriceTrendsView from './panels/PriceTrendsView'
 import ValuationMatrixView from './panels/ValuationMatrixView'
@@ -285,14 +284,6 @@ export default function PanelRenderer({ panel }: { panel: Panel }) {
   }
 
   // ---- Price Intelligence panels ----
-  if (panel.type === 'price-map') {
-    return (
-      <PanelContent>
-        <PriceMapView />
-      </PanelContent>
-    )
-  }
-
   if (panel.type === 'comparables') {
     return (
       <PanelContent>

@@ -430,14 +430,6 @@ function SCOUTSubPanelCards({ live }: { live: SCOUTLiveData }) {
       onClick: () => nav.openPanelByType('transaction-feed', 'tab'),
     },
     {
-      code: 'PRC', title: 'Price Intelligence',
-      desc: 'Price per sqft mapping across all areas with historical trend analysis',
-      metric: live.areaMetrics.length > 0 ? `AED ${Math.round(live.areaMetrics.reduce((s, a) => s + a.avgPricePerSqft, 0) / live.areaMetrics.length)}/sqft` : 'Loading...',
-      sub: 'Cross-area comparison',
-      color: '#d4a574',
-      onClick: () => nav.openPanelByType('price-map', 'tab'),
-    },
-    {
       code: 'CMP', title: 'Comparables Engine',
       desc: 'Side-by-side property and area comparisons with pricing benchmarks',
       metric: `${totalAreas} areas`,

@@ -208,14 +208,6 @@ export default function CommandBar() {
 
     // Price Intelligence commands
     cmds.push({
-      id: 'panel-price-map',
-      label: 'Price Intelligence',
-      sublabel: 'Area-by-area price comparison and momentum',
-      category: 'Price Intelligence',
-      icon: 'PRC',
-      action: () => openPanel('price-map', 'replace'),
-    })
-    cmds.push({
       id: 'panel-comparables',
       label: 'Comparables Engine',
       sublabel: 'Transaction-based valuation analysis',
