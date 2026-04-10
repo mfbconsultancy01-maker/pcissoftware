@@ -118,7 +118,7 @@ const severityConfig: Record<Exclude<SeverityLevel, 'all'>, { color: string; dot
   critical: { color: 'text-rose-400', dotColor: '\u25CF', bgColor: 'bg-rose-400/10' },
   high: { color: 'text-orange-400', dotColor: '\u25CF', bgColor: 'bg-orange-400/10' },
   medium: { color: 'text-yellow-400', dotColor: '\u25CF', bgColor: 'bg-yellow-400/10' },
-  low: { color: 'text-white/40', dotColor: '\u25CF', bgColor: 'bg-white/[0.05]' },
+  low: { color: 'text-pcis-text-muted', dotColor: '\u25CF', bgColor: 'bg-white/[0.05]' },
 }
 
 const getRelativeTime = (hoursAgo: number): string => {
@@ -247,7 +247,7 @@ function SignalDetailOverlay({
         {/* Close button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-white/40 hover:text-white/80 transition-colors text-sm z-10"
+          className="absolute top-4 right-4 text-pcis-text-muted hover:text-pcis-text-secondary transition-colors text-sm z-10"
         >
           ESC to close
         </button>
@@ -257,50 +257,50 @@ function SignalDetailOverlay({
           <div className="flex items-center gap-2 mb-3">
             <span className={`text-sm font-semibold ${config.color}`}>{config.dotColor}</span>
             <span className={`text-[9px] font-bold uppercase tracking-wider ${config.color}`}>{severity}</span>
-            <div className="bg-white/[0.06] border border-white/[0.08] rounded px-2 py-0.5">
-              <span className="text-[9px] font-medium text-white/70">{signal.type}</span>
+            <div className="bg-white/[0.06] border border-pcis-border/20 rounded px-2 py-0.5">
+              <span className="text-[9px] font-medium text-pcis-text-secondary">{signal.type}</span>
             </div>
-            <span className="text-[9px] text-white/40 ml-auto">
+            <span className="text-[9px] text-pcis-text-muted ml-auto">
               {getRelativeTime((new Date().getTime() - new Date(signal.detectedDate).getTime()) / (1000 * 60 * 60))}
             </span>
           </div>
-          <h2 className="text-xl font-bold text-white/90 mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>
+          <h2 className="text-xl font-bold text-pcis-text mb-2" style={{ fontFamily: "'Playfair Display', serif" }}>
             {signal.title}
           </h2>
           <div className="flex items-center gap-4 text-[10px]">
             <AreaLink areaId={signal.areaId}>
-              <span className="text-[#C9A55A] hover:text-[#C9A55A]/80 transition-colors">{signal.area}</span>
+              <span className="text-pcis-gold hover:text-pcis-gold/80 transition-colors">{signal.area}</span>
             </AreaLink>
-            <span className="text-white/40">|</span>
+            <span className="text-pcis-text-muted">|</span>
             <span className={`font-semibold ${signal.deviationPct < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
               {signal.deviationPct.toFixed(1)}% deviation
             </span>
-            <span className="text-white/40">|</span>
-            <span className="text-white/60">{signal.confidence}% confidence</span>
-            <span className="text-white/40">|</span>
-            <span className="text-white/60">Act within: {signal.timeToAct || 'N/A'}</span>
+            <span className="text-pcis-text-muted">|</span>
+            <span className="text-pcis-text-muted">{signal.confidence}% confidence</span>
+            <span className="text-pcis-text-muted">|</span>
+            <span className="text-pcis-text-muted">Act within: {signal.timeToAct || 'N/A'}</span>
           </div>
         </div>
 
         {/* Metrics bar */}
-        <div className="grid grid-cols-3 gap-4 mb-6 p-4 bg-white/[0.02] border border-white/[0.06] rounded-lg">
+        <div className="grid grid-cols-3 gap-4 mb-6 p-4 bg-white/[0.02] border border-pcis-border/15 rounded-lg">
           <div>
-            <span className="text-[8px] text-white/40 uppercase tracking-wider block mb-1">Deviation</span>
+            <span className="text-[8px] text-pcis-text-muted uppercase tracking-wider block mb-1">Deviation</span>
             <span className={`text-lg font-bold ${signal.deviationPct < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
               {signal.deviationPct.toFixed(1)}%
             </span>
           </div>
           <div>
-            <span className="text-[8px] text-white/40 uppercase tracking-wider block mb-1">Confidence</span>
+            <span className="text-[8px] text-pcis-text-muted uppercase tracking-wider block mb-1">Confidence</span>
             <div className="flex items-center gap-2">
               <div className="w-20 h-1.5 bg-white/[0.06] rounded overflow-hidden">
-                <div className="h-full bg-[#C9A55A]" style={{ width: `${signal.confidence}%` }} />
+                <div className="h-full bg-pcis-gold" style={{ width: `${signal.confidence}%` }} />
               </div>
-              <span className="text-lg font-bold text-[#C9A55A]">{signal.confidence}%</span>
+              <span className="text-lg font-bold text-pcis-gold">{signal.confidence}%</span>
             </div>
           </div>
           <div>
-            <span className="text-[8px] text-white/40 uppercase tracking-wider block mb-1">Est. Upside</span>
+            <span className="text-[8px] text-pcis-text-muted uppercase tracking-wider block mb-1">Est. Upside</span>
             <span className="text-lg font-bold text-emerald-400">
               AED {((signal.estimatedUpside || 0) / 1_000_000).toFixed(1)}M
             </span>
@@ -309,16 +309,16 @@ function SignalDetailOverlay({
 
         {/* AI Analysis Header */}
         <div className="flex items-center gap-2 mb-4">
-          <div className="w-6 h-6 rounded bg-[#C9A55A]/20 flex items-center justify-center">
-            <span className="text-[10px] text-[#C9A55A] font-bold">AI</span>
+          <div className="w-6 h-6 rounded bg-pcis-gold/20 flex items-center justify-center">
+            <span className="text-[10px] text-pcis-gold font-bold">AI</span>
           </div>
-          <span className="text-[10px] text-[#C9A55A] uppercase tracking-wider font-semibold">
+          <span className="text-[10px] text-pcis-gold uppercase tracking-wider font-semibold">
             PCIS AI Signal Analysis
           </span>
           {typedSections < 6 && (
             <div className="flex items-center gap-1 ml-2">
-              <div className="w-1 h-1 rounded-full bg-[#C9A55A] animate-pulse" />
-              <span className="text-[8px] text-[#C9A55A]/60">Analysing...</span>
+              <div className="w-1 h-1 rounded-full bg-pcis-gold animate-pulse" />
+              <span className="text-[8px] text-pcis-gold/60">Analysing...</span>
             </div>
           )}
         </div>
@@ -330,14 +330,14 @@ function SignalDetailOverlay({
               key={section.title}
               className={`transition-all duration-300 ${idx < typedSections ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}`}
             >
-              <div className="bg-white/[0.02] border border-white/[0.04] rounded-lg p-4">
+              <div className="bg-white/[0.02] border border-pcis-border/10 rounded-lg p-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-[#C9A55A] text-xs">{section.icon}</span>
-                  <h3 className="text-[11px] font-semibold text-white/80 uppercase tracking-wider">
+                  <span className="text-pcis-gold text-xs">{section.icon}</span>
+                  <h3 className="text-[11px] font-semibold text-pcis-text-secondary uppercase tracking-wider">
                     {section.title}
                   </h3>
                 </div>
-                <p className="text-[11px] text-white/65 leading-relaxed">{section.content}</p>
+                <p className="text-[11px] text-pcis-text-secondary leading-relaxed">{section.content}</p>
               </div>
             </div>
           ))}
@@ -346,7 +346,7 @@ function SignalDetailOverlay({
         {/* Tags */}
         <div className="mt-6 flex gap-2 flex-wrap">
           {signal.tags.map((tag: string) => (
-            <span key={tag} className="text-[8px] text-white/50 bg-white/[0.04] border border-white/[0.06] rounded-full px-2 py-1">
+            <span key={tag} className="text-[8px] text-pcis-text-muted/50 bg-white/[0.04] border border-pcis-border/15 rounded-full px-2 py-1">
               {tag}
             </span>
           ))}
@@ -484,17 +484,17 @@ export default function SignalFeedView() {
       )}
 
       {/* Header */}
-      <div className="border-b border-white/[0.08] p-6 pb-5 flex-shrink-0">
+      <div className="border-b border-pcis-border/20 p-6 pb-5 flex-shrink-0">
         <div className="flex items-start justify-between mb-4">
           <div>
-            <h1 className="text-xl font-semibold text-white/90" style={{ fontFamily: "'Playfair Display', serif" }}>
+            <h1 className="text-xl font-semibold text-pcis-text" style={{ fontFamily: "'Playfair Display', serif" }}>
               Market Signals
             </h1>
-            <p className="text-[11px] text-white/50 mt-1 tracking-wide">
+            <p className="text-[11px] text-pcis-text-muted mt-1 tracking-wide">
               Real-Time Intelligence Feed -- {loading ? 'Loading...' : marketSignals.length} Active Signals
             </p>
             {error && <p className="text-[9px] text-orange-400 mt-1">{error}</p>}
-            <p className="text-[9px] text-white/30 mt-1">
+            <p className="text-[9px] text-pcis-text-muted/50 mt-1">
               Click any signal for full AI analysis
             </p>
           </div>
@@ -506,7 +506,7 @@ export default function SignalFeedView() {
             ].map((badge) => (
               <div key={badge.label} className="text-right">
                 <div className={`text-sm font-semibold ${badge.color}`}>{badge.count}</div>
-                <div className="text-[8px] text-white/40 uppercase tracking-wider">{badge.label}</div>
+                <div className="text-[8px] text-pcis-text-muted uppercase tracking-wider">{badge.label}</div>
               </div>
             ))}
           </div>
@@ -514,7 +514,7 @@ export default function SignalFeedView() {
       </div>
 
       {/* Filter Bar */}
-      <div className="border-b border-white/[0.08] p-6 pt-4 pb-4 flex-shrink-0 space-y-4">
+      <div className="border-b border-pcis-border/20 p-6 pt-4 pb-4 flex-shrink-0 space-y-4">
         <div className="flex gap-2 flex-wrap">
           {(['all', 'critical', 'high', 'medium', 'low'] as const).map((sev) => (
             <button
@@ -523,7 +523,7 @@ export default function SignalFeedView() {
               className={`px-3 py-1 rounded-full text-[10px] font-medium uppercase tracking-wider transition-colors ${
                 severityFilter === sev
                   ? 'bg-pcis-gold text-black'
-                  : 'bg-white/[0.06] text-white/60 hover:bg-white/[0.10]'
+                  : 'bg-white/[0.06] text-pcis-text-secondary hover:bg-white/[0.10]'
               }`}
             >
               {sev === 'all' ? 'All Severities' : sev}
@@ -532,19 +532,19 @@ export default function SignalFeedView() {
         </div>
         <div className="flex gap-3 items-center flex-wrap">
           <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
-            className="px-3 py-1.5 rounded text-[10px] bg-white/[0.06] text-white/80 border border-white/[0.08] focus:outline-none focus:border-pcis-gold/50 transition-colors">
+            className="px-3 py-1.5 rounded text-[10px] bg-white/[0.06] text-pcis-text-secondary border border-pcis-border/20 focus:outline-none focus:border-pcis-gold/50 transition-colors">
             <option value="all">All Types</option>
             {signalTypes.map((type) => (<option key={type} value={type}>{type}</option>))}
           </select>
           <select value={areaFilter} onChange={(e) => setAreaFilter(e.target.value)}
-            className="px-3 py-1.5 rounded text-[10px] bg-white/[0.06] text-white/80 border border-white/[0.08] focus:outline-none focus:border-pcis-gold/50 transition-colors">
+            className="px-3 py-1.5 rounded text-[10px] bg-white/[0.06] text-pcis-text-secondary border border-pcis-border/20 focus:outline-none focus:border-pcis-gold/50 transition-colors">
             <option value="all">All Areas</option>
             {areas.map((area) => (<option key={area} value={area}>{area}</option>))}
           </select>
           <input type="text" placeholder="Search signals..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
-            className="flex-1 min-w-48 px-3 py-1.5 rounded text-[10px] bg-white/[0.06] text-white/80 border border-white/[0.08] placeholder:text-white/30 focus:outline-none focus:border-pcis-gold/50 transition-colors" />
+            className="flex-1 min-w-48 px-3 py-1.5 rounded text-[10px] bg-white/[0.06] text-pcis-text-secondary border border-pcis-border/20 placeholder:text-pcis-text-muted focus:outline-none focus:border-pcis-gold/50 transition-colors" />
           <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortOption)}
-            className="px-3 py-1.5 rounded text-[10px] bg-white/[0.06] text-white/80 border border-white/[0.08] focus:outline-none focus:border-pcis-gold/50 transition-colors">
+            className="px-3 py-1.5 rounded text-[10px] bg-white/[0.06] text-pcis-text-secondary border border-pcis-border/20 focus:outline-none focus:border-pcis-gold/50 transition-colors">
             <option value="newest">Newest</option>
             <option value="severity">Severity</option>
             <option value="confidence">Confidence</option>
@@ -558,7 +558,7 @@ export default function SignalFeedView() {
         {loading ? (
           <div className="h-full flex items-center justify-center text-center">
             <div>
-              <div className="text-white/50 text-sm mb-2">Fetching market signals...</div>
+              <div className="text-pcis-text-muted text-sm mb-2">Fetching market signals...</div>
               <div className="flex justify-center gap-1">
                 <div className="w-1 h-1 bg-pcis-gold rounded-full animate-pulse" />
                 <div className="w-1 h-1 bg-pcis-gold rounded-full animate-pulse delay-100" />
@@ -569,7 +569,7 @@ export default function SignalFeedView() {
         ) : filteredSignals.length === 0 ? (
           <div className="h-full flex items-center justify-center text-center">
             <div>
-              <div className="text-white/50 text-sm mb-1">No signals match your filters</div>
+              <div className="text-pcis-text-muted text-sm mb-1">No signals match your filters</div>
               <button
                 onClick={() => { setSeverityFilter('all'); setTypeFilter('all'); setAreaFilter('all'); setSearchTerm('') }}
                 className="text-[10px] text-pcis-gold hover:text-pcis-gold/80 transition-colors"
@@ -587,53 +587,53 @@ export default function SignalFeedView() {
               <div
                 key={signal.id}
                 onClick={() => setExpandedSignal(signal)}
-                className={`p-4 rounded-lg border border-white/[0.04] ${config.bgColor} cursor-pointer transition-all hover:border-[#C9A55A]/30 hover:bg-white/[0.04] group`}
+                className={`p-4 rounded-lg border border-pcis-border/10 ${config.bgColor} cursor-pointer transition-all hover:border-pcis-gold/30 hover:bg-white/[0.04] group`}
               >
                 {/* Top Row */}
                 <div className="flex items-center gap-2 mb-3">
                   <span className={`text-sm font-semibold ${config.color}`}>{config.dotColor}</span>
                   <span className={`text-[9px] font-bold uppercase tracking-wider ${config.color}`}>{severity}</span>
-                  <div className="bg-white/[0.06] border border-white/[0.08] rounded px-2 py-0.5">
-                    <span className="text-[9px] font-medium text-white/70">{signal.type}</span>
+                  <div className="bg-white/[0.06] border border-pcis-border/20 rounded px-2 py-0.5">
+                    <span className="text-[9px] font-medium text-pcis-text-secondary">{signal.type}</span>
                   </div>
                   <div className="flex-1" />
-                  <span className="text-[9px] text-[#C9A55A]/50 group-hover:text-[#C9A55A] transition-colors">
+                  <span className="text-[9px] text-pcis-gold/50 group-hover:text-pcis-gold transition-colors">
                     VIEW ANALYSIS
                   </span>
-                  <span className="text-[10px] text-white/40 ml-2">{signal.area}</span>
+                  <span className="text-[10px] text-pcis-text-muted ml-2">{signal.area}</span>
                 </div>
 
                 {/* Title and Description */}
                 <div className="mb-3">
-                  <h3 className="text-sm text-white/90 font-semibold mb-1">{signal.title}</h3>
-                  <p className="text-[10px] text-white/60 line-clamp-2">{signal.description}</p>
+                  <h3 className="text-sm text-pcis-text font-semibold mb-1">{signal.title}</h3>
+                  <p className="text-[10px] text-pcis-text-muted line-clamp-2">{signal.description}</p>
                 </div>
 
                 {/* Metrics Row */}
-                <div className="grid grid-cols-3 gap-3 mb-3 pb-3 border-b border-white/[0.04]">
+                <div className="grid grid-cols-3 gap-3 mb-3 pb-3 border-b border-pcis-border/10">
                   <div>
-                    <span className="text-[8px] text-white/40 uppercase tracking-wider block mb-0.5">Deviation</span>
+                    <span className="text-[8px] text-pcis-text-muted uppercase tracking-wider block mb-0.5">Deviation</span>
                     <span className={`text-sm font-semibold ${signal.deviationPct < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
                       {signal.deviationPct.toFixed(1)}%
                     </span>
                   </div>
                   <div>
-                    <span className="text-[8px] text-white/40 uppercase tracking-wider block mb-0.5">Confidence</span>
+                    <span className="text-[8px] text-pcis-text-muted uppercase tracking-wider block mb-0.5">Confidence</span>
                     <div className="flex items-center gap-1.5">
                       <div className="w-12 h-1 bg-white/[0.04] rounded overflow-hidden">
                         <div className="h-full bg-pcis-gold" style={{ width: `${signal.confidence}%` }} />
                       </div>
-                      <span className="text-[9px] text-white/60">{signal.confidence}%</span>
+                      <span className="text-[9px] text-pcis-text-secondary">{signal.confidence}%</span>
                     </div>
                   </div>
                   <div>
-                    <span className="text-[8px] text-white/40 uppercase tracking-wider block mb-0.5">Time to Act</span>
-                    <span className="text-sm font-semibold text-white/80">{signal.timeToAct || 'N/A'}</span>
+                    <span className="text-[8px] text-pcis-text-muted uppercase tracking-wider block mb-0.5">Time to Act</span>
+                    <span className="text-sm font-semibold text-pcis-text-secondary">{signal.timeToAct || 'N/A'}</span>
                   </div>
                 </div>
 
                 {/* Insight */}
-                <div className="mb-3 pb-3 border-b border-white/[0.04]">
+                <div className="mb-3 pb-3 border-b border-pcis-border/10">
                   <p className="text-[10px] text-pcis-gold/80">&#9670; {signal.actionableInsight}</p>
                 </div>
 
@@ -641,12 +641,12 @@ export default function SignalFeedView() {
                 <div className="flex items-center justify-between">
                   <div className="flex gap-1.5 flex-wrap">
                     {signal.tags.map((tag: string) => (
-                      <span key={tag} className="text-[8px] text-white/50 bg-white/[0.04] border border-white/[0.06] rounded-full px-1.5 py-0.5">
+                      <span key={tag} className="text-[8px] text-pcis-text-muted/50 bg-white/[0.04] border border-pcis-border/15 rounded-full px-1.5 py-0.5">
                         {tag}
                       </span>
                     ))}
                   </div>
-                  <span className="text-[9px] text-white/40 flex-shrink-0 ml-2">
+                  <span className="text-[9px] text-pcis-text-muted flex-shrink-0 ml-2">
                     {getRelativeTime((new Date().getTime() - new Date(signal.detectedDate).getTime()) / (1000 * 60 * 60))}
                   </span>
                 </div>
@@ -657,18 +657,18 @@ export default function SignalFeedView() {
       </div>
 
       {/* Stats Footer */}
-      <div className="border-t border-white/[0.08] p-6 pt-5 pb-5 flex-shrink-0 bg-gradient-to-t from-white/[0.01] to-transparent">
+      <div className="border-t border-pcis-border/20 p-6 pt-5 pb-5 flex-shrink-0 bg-gradient-to-t from-white/[0.01] to-transparent">
         <div className="grid grid-cols-3 gap-6">
           <div>
-            <div className="text-[8px] text-white/40 uppercase tracking-wider mb-1">Total Signals</div>
-            <div className="text-2xl font-semibold text-white/90">{marketSignals.length}</div>
+            <div className="text-[8px] text-pcis-text-muted uppercase tracking-wider mb-1">Total Signals</div>
+            <div className="text-2xl font-semibold text-pcis-text">{marketSignals.length}</div>
           </div>
           <div>
-            <div className="text-[8px] text-white/40 uppercase tracking-wider mb-1">Avg Confidence</div>
+            <div className="text-[8px] text-pcis-text-muted uppercase tracking-wider mb-1">Avg Confidence</div>
             <div className="text-2xl font-semibold text-pcis-gold">{avgConfidence}%</div>
           </div>
           <div>
-            <div className="text-[8px] text-white/40 uppercase tracking-wider mb-1">Est. Total Upside</div>
+            <div className="text-[8px] text-pcis-text-muted uppercase tracking-wider mb-1">Est. Total Upside</div>
             <div className="text-2xl font-semibold text-emerald-400">
               AED {(totalUpside / 1_000_000).toFixed(1)}M
             </div>
