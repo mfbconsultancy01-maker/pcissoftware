@@ -5,10 +5,28 @@ import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { useWorkspaceSafe, PanelType } from '@/components/workspace/WorkspaceProvider'
 import { usePlatformKey } from '@/lib/platform'
-import { P1Loading } from '@/components/P1Loading'
 import { useCIEClients } from '@/lib/useCIEData'
-import { useAdvisorDashboard, useForgeAlerts } from '@/lib/useForgeData'
+import { useAdvisorDashboard } from '@/lib/useForgeData'
 import { useScoutAreas } from '@/lib/useScoutData'
+import {
+  useV2MorningBrief,
+  useV2ProactiveTriggers,
+  useV2OpportunityQueue,
+  useV2QueueStats,
+  useV2HealthScore,
+  useV2Dashboard,
+  useV2BrokerIntelligence,
+  useV2WeeklyReport,
+  useV2QualityGaps,
+  useV2QualityHistory,
+  useV2ForgeMetrics,
+  useV2ConversionMetrics,
+  useV2PortfolioHealth,
+  v2MarkBriefViewed,
+  type V2OpportunityItem,
+  type V2ProactiveTrigger,
+  type V2BriefAlert,
+} from '@/lib/useV2Data'
 import {
   clients,
   properties,
@@ -31,19 +49,16 @@ const DashboardBriefOrb = dynamic(() => import('@/components/DashboardBriefOrb')
 
 
 // ═══════════════════════════════════════════════════════════════════════════
-// PCIS DASHBOARD v8 — PCIS-Styled Software Dashboard
+// PCIS DASHBOARD v2.1 — V2 Backend Wired
 //
-// Renders inside AppLayout (Sidebar + Header + Dubai skyline already exist).
-// Uses the REAL PCIS design tokens: glassy cards, gold accents, Playfair serif.
-// Software-dense layout with SVG charts. Keyboard-first.
+// Three views: Today (action surface), Operations (engine overview),
+// This Week (review + analytics). All powered by V2 endpoints.
 // ═══════════════════════════════════════════════════════════════════════════
 
 
 // ── Formatting ──────────────────────────────────────────────────────────
-
 const fmt = (n: number) =>
   n >= 1e9 ? `${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(0)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}K` : `${n}`
-
 const fmtPrice = (n: number) => `AED ${fmt(n)}`
 
 const ago = (ts: string) => {
@@ -67,12 +82,14 @@ const engineDefs = [
   { id: 'E1', label: 'CIE', name: 'Client Intelligence', route: '/clients', panelType: 'cie-dashboard' as PanelType, color: '#06b6d4', key: '1' },
   { id: 'E2', label: 'SCOUT', name: 'Market Intelligence', route: '/intel', panelType: 'scout-dashboard' as PanelType, color: '#d4a574', key: '2' },
   { id: 'E3', label: 'ENGINE', name: 'Matching Engine', route: '/matches', panelType: 'engine-dashboard' as PanelType, color: '#22c55e', key: '3' },
-  { id: 'E4', label: 'OUTPUT', name: 'Advisor Actions', route: '/recommendations', panelType: 'forge-dashboard' as PanelType, color: '#a78bfa', key: '4' },
+  { id: 'E4', label: 'FORGE', name: 'AI Advisor', route: '/recommendations', panelType: 'forge-dashboard' as PanelType, color: '#a78bfa', key: '4' },
 ]
+
+type DashboardView = 'today' | 'operations' | 'week'
 
 
 // ═══════════════════════════════════════════════════════════════════════════
-// SVG COMPONENTS — matching existing PCIS page patterns
+// SVG COMPONENTS
 // ═══════════════════════════════════════════════════════════════════════════
 
 function MiniSparkline({ data, color = '#d4a574', width = 80, height = 24 }: { data: number[]; color?: string; width?: number; height?: number }) {
@@ -97,23 +114,6 @@ function MiniSparkline({ data, color = '#d4a574', width = 80, height = 24 }: { d
       </defs>
       <path d={areaPath} fill={`url(#${gradId})`} />
       <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-function DemandRing({ score, size = 36, strokeWidth = 3 }: { score: number; size?: number; strokeWidth?: number }) {
-  const r = (size - strokeWidth) / 2
-  const circ = 2 * Math.PI * r
-  const offset = circ - (score / 100) * circ
-  const color = score >= 60 ? '#22c55e' : score >= 40 ? '#f59e0b' : '#ef4444'
-  return (
-    <svg width={size} height={size}>
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={strokeWidth} />
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={strokeWidth}
-        strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
-        transform={`rotate(-90 ${size / 2} ${size / 2})`} />
-      <text x={size / 2} y={size / 2} textAnchor="middle" dominantBaseline="central"
-        fill={color} fontSize="9" fontWeight="bold" fontFamily="monospace">{score}</text>
     </svg>
   )
 }
@@ -143,6 +143,94 @@ function DonutChart({ data, size = 80, strokeWidth = 10 }: { data: { label: stri
   )
 }
 
+function HealthRing({ score, size = 48 }: { score: number; size?: number }) {
+  const sw = 4
+  const r = (size - sw) / 2
+  const circ = 2 * Math.PI * r
+  const offset = circ - (score / 100) * circ
+  const color = score >= 70 ? '#22c55e' : score >= 40 ? '#f59e0b' : '#ef4444'
+  return (
+    <svg width={size} height={size}>
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={sw} />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={sw}
+        strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
+        transform={`rotate(-90 ${size / 2} ${size / 2})`} />
+      <text x={size / 2} y={size / 2} textAnchor="middle" dominantBaseline="central"
+        fill={color} fontSize="12" fontWeight="bold" fontFamily="monospace">{score}</text>
+    </svg>
+  )
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SHARED COMPONENTS
+// ═══════════════════════════════════════════════════════════════════════════
+
+function Panel({ children, className = '', onClick }: { children: React.ReactNode; className?: string; onClick?: () => void }) {
+  return (
+    <div
+      className={`bg-white/[0.02] border border-pcis-border/30 rounded-xl backdrop-blur-sm overflow-hidden ${onClick ? 'cursor-pointer hover:border-pcis-gold/20 transition-colors' : ''} ${className}`}
+      onClick={onClick}>
+      {children}
+    </div>
+  )
+}
+
+function PanelHeader({ title, accent, right }: { title: string; accent?: string; right?: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between px-4 py-2.5 border-b border-pcis-border/20">
+      <div className="flex items-center gap-2">
+        {accent && <div className="w-[3px] h-3.5 rounded-full" style={{ backgroundColor: accent }} />}
+        <span className="text-[11px] font-semibold text-pcis-text-secondary uppercase tracking-wider">{title}</span>
+      </div>
+      {right}
+    </div>
+  )
+}
+
+function SeverityDot({ severity }: { severity: string }) {
+  const colors: Record<string, string> = {
+    critical: '#ef4444',
+    high: '#f59e0b',
+    medium: '#06b6d4',
+    low: '#6b7280',
+  }
+  return <div className="w-[6px] h-[6px] rounded-full flex-shrink-0 mt-1" style={{ backgroundColor: colors[severity] || '#6b7280' }} />
+}
+
+function SeverityBadge({ severity }: { severity: string }) {
+  const colors: Record<string, { bg: string; text: string }> = {
+    critical: { bg: 'bg-red-500/[0.08]', text: 'text-red-400/80' },
+    high: { bg: 'bg-amber-500/[0.08]', text: 'text-amber-400/80' },
+    medium: { bg: 'bg-cyan-500/[0.08]', text: 'text-cyan-400/80' },
+    low: { bg: 'bg-gray-500/[0.08]', text: 'text-gray-400/80' },
+  }
+  const c = colors[severity] || colors.low
+  return (
+    <span className={`text-[8px] font-mono uppercase px-1.5 py-0.5 rounded ${c.bg} ${c.text}`}>
+      {severity}
+    </span>
+  )
+}
+
+function EmptyState({ message }: { message: string }) {
+  return (
+    <div className="px-4 py-8 text-center">
+      <div className="w-2 h-2 rounded-full bg-pcis-gold/20 mx-auto mb-2" />
+      <span className="text-[10px] text-pcis-text-muted/40">{message}</span>
+    </div>
+  )
+}
+
+function LoadingPulse() {
+  return (
+    <div className="px-4 py-6 text-center">
+      <div className="w-1.5 h-1.5 rounded-full bg-pcis-gold animate-pulse mx-auto mb-2" />
+      <span className="text-[9px] text-white/30">Loading...</span>
+    </div>
+  )
+}
+
 
 // ═══════════════════════════════════════════════════════════════════════════
 // COMMAND PALETTE (⌘K)
@@ -157,91 +245,45 @@ function CmdPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
 
   useEffect(() => { if (open) { setQ(''); setSel(0); setTimeout(() => ref.current?.focus(), 30) } }, [open])
 
-  // Workspace panel definitions for GO-code navigation
   const workspacePanels = useMemo(() => [
-    // CIE Intelligence
     { tag: 'CID', label: 'CIE Dashboard', sub: 'E1 · Client profiles, archetypes, engagement', route: '/workspace' },
     { tag: 'CIP', label: 'CIE Profile', sub: 'E1 · Deep-dive 12-dimension cognitive profile', route: '/workspace' },
     { tag: 'CIS', label: 'CIE Signals', sub: 'E1 · Real-time behavioural signals & PCISCOM', route: '/workspace' },
-    { tag: 'CIC', label: 'Client Comparator', sub: 'E1 · Side-by-side dimension comparison', route: '/workspace' },
-    { tag: 'CIE', label: 'Engagement Intel', sub: 'E1 · Decay tracking, momentum analysis', route: '/workspace' },
-    { tag: 'CIF', label: 'Prediction Engine', sub: 'E1 · AI-predicted behaviour patterns', route: '/workspace' },
-    { tag: 'CIM', label: 'Client Map', sub: 'E1 · Global map with archetype markers & CIE rings', route: '/workspace' },
-    { tag: 'CIG', label: 'Client Grid', sub: 'E1 · Spreadsheet view with all CIE columns', route: '/workspace' },
-    { tag: 'CIPL', label: 'CIE Pipeline', sub: 'E1 · Kanban pipeline with cognitive overlays', route: '/workspace' },
-    { tag: 'C36', label: 'Client 360', sub: 'Cross · All engines unified per client', route: '/workspace' },
-    // SCOUT
     { tag: 'SCT', label: 'SCOUT Dashboard', sub: 'E2 · Market intelligence hub', route: '/workspace' },
     { tag: 'ARE', label: 'Area Intelligence', sub: 'E2 · Area demand, price, yield metrics', route: '/workspace' },
     { tag: 'TXN', label: 'Transaction Feed', sub: 'E2 · Live DLD transaction data', route: '/workspace' },
-    { tag: 'PRC', label: 'Price Intelligence', sub: 'E2 · Price per sqft analysis', route: '/workspace' },
-    { tag: 'CMP', label: 'Comparables Engine', sub: 'E2 · Property valuation benchmarking', route: '/workspace' },
-    { tag: 'OFP', label: 'Off-Plan Projects', sub: 'E2 · New development launches', route: '/workspace' },
-    { tag: 'DEV', label: 'Developer Analytics', sub: 'E2 · Developer track records', route: '/workspace' },
-    { tag: 'MCR', label: 'Macro Intelligence', sub: 'E2 · Economic indicators & demand drivers', route: '/workspace' },
-    { tag: 'EMG', label: 'Emerging Areas', sub: 'E2 · Growth-phase market detection', route: '/workspace' },
-    { tag: 'HMP', label: 'Heat Map', sub: 'E2 · Visual demand & activity map', route: '/workspace' },
-    // ENGINE
     { tag: 'ENG', label: 'ENGINE Dashboard', sub: 'E3 · Matching command centre', route: '/workspace' },
     { tag: 'EPM', label: 'Purpose Matrix', sub: 'E3 · Client-to-purpose mapping', route: '/workspace' },
-    { tag: 'EMS', label: 'Match Scorer', sub: 'E3 · 4-pillar match analysis', route: '/workspace' },
-    { tag: 'ERC', label: 'Recommendations', sub: 'E3 · AI match recommendations', route: '/workspace' },
-    // FORGE (Claude-powered)
     { tag: 'FDH', label: 'FORGE Command Centre', sub: 'E4 · Pipeline intelligence dashboard', route: '/workspace' },
     { tag: 'FDR', label: 'Deal Room', sub: 'E4 · AI deal intelligence briefs', route: '/workspace' },
     { tag: 'FMP', label: 'Meeting Prep', sub: 'E4 · CIE-driven tactical briefings', route: '/workspace' },
-    { tag: 'FOR', label: 'Opportunity Radar', sub: 'E4 · Cross-engine pattern detection', route: '/workspace' },
-    { tag: 'FCD', label: 'Client Dossier', sub: 'E4 · Unified client intelligence file', route: '/workspace' },
-    // Cross-Engine
-    { tag: 'PPL', label: 'Deal Pipeline', sub: 'Cross · Client flow from profiling to closing', route: '/workspace' },
-    { tag: 'NTF', label: 'Notifications', sub: 'Cross · Unified alert feed from all engines', route: '/workspace' },
+    { tag: 'C36', label: 'Client 360', sub: 'Cross · All engines unified per client', route: '/workspace' },
   ], [])
 
   const results = useMemo(() => {
     if (!q.trim()) {
-      // Show engines + top workspace panels when empty
       const defaults = engineDefs.map(e => ({ label: e.name, sub: `${e.label} engine`, route: e.route, tag: e.id }))
-      const topPanels = workspacePanels.slice(0, 5) // Show first 5 CIE panels
-      return [...defaults, ...topPanels]
+      return [...defaults, ...workspacePanels.slice(0, 4)]
     }
     const l = q.toLowerCase()
     const u = q.toUpperCase()
     const r: { label: string; sub: string; route: string; tag: string }[] = []
-
-    // GO-code exact match gets top priority
     const goExact = workspacePanels.find(p => p.tag.toUpperCase() === u)
     if (goExact) r.push(goExact)
-
-    // GO-code prefix match
     workspacePanels.forEach(p => {
-      if (p.tag.toUpperCase() !== u && p.tag.toUpperCase().startsWith(u) && q.length >= 2)
-        r.push(p)
+      if (p.tag.toUpperCase() !== u && p.tag.toUpperCase().startsWith(u) && q.length >= 2) r.push(p)
     })
-
-    // Workspace panel name/sub match
     workspacePanels.forEach(p => {
-      if (!r.find(x => x.tag === p.tag) && (p.label.toLowerCase().includes(l) || p.sub.toLowerCase().includes(l)))
-        r.push(p)
+      if (!r.find(x => x.tag === p.tag) && (p.label.toLowerCase().includes(l) || p.sub.toLowerCase().includes(l))) r.push(p)
     })
-
-    // Client search
     clients.forEach(c => {
       if (c.name.toLowerCase().includes(l))
         r.push({ label: c.name, sub: `${c.type} · ${c.category} · ${c.location}`, route: `/clients?id=${c.id}`, tag: c.initials })
     })
-
-    // Property search
-    properties.forEach(p => {
-      if (p.name.toLowerCase().includes(l) || p.area.toLowerCase().includes(l))
-        r.push({ label: p.name, sub: `${p.area} · ${fmtPrice(p.price)}`, route: `/matches?property=${p.id}`, tag: p.type.slice(0, 3).toUpperCase() })
-    })
-
-    // Engine search
     engineDefs.forEach(e => {
       if (e.name.toLowerCase().includes(l) || e.label.toLowerCase().includes(l))
         r.push({ label: e.name, sub: `${e.label} engine`, route: e.route, tag: e.id })
     })
-
     return r.slice(0, 12)
   }, [q, workspacePanels])
 
@@ -290,72 +332,14 @@ function CmdPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
 
 
 // ═══════════════════════════════════════════════════════════════════════════
-// PANEL — standard PCIS glassy card wrapper
+// NEWS FEED (stays as-is — RSS-sourced market news)
 // ═══════════════════════════════════════════════════════════════════════════
 
-function Panel({ children, className = '', onClick }: { children: React.ReactNode; className?: string; onClick?: () => void }) {
-  return (
-    <div
-      className={`bg-white/[0.02] border border-pcis-border/30 rounded-xl backdrop-blur-sm overflow-hidden ${onClick ? 'cursor-pointer hover:border-pcis-gold/20 transition-colors' : ''} ${className}`}
-      onClick={onClick}>
-      {children}
-    </div>
-  )
-}
+interface NewsItem { id: string; title: string; link: string; source: string; publishedAt: string; category: string }
+const NEWS_CAT_COLORS: Record<string, string> = { 'real-estate': '#22c55e', 'financial': '#06b6d4', 'development': '#a78bfa', 'regulatory': '#f59e0b', 'market': '#ec4899' }
+const NEWS_CAT_SHORT: Record<string, string> = { 'real-estate': 'RE', 'financial': 'FIN', 'development': 'DEV', 'regulatory': 'REG', 'market': 'MKT' }
 
-function PanelHeader({ title, accent, right }: { title: string; accent?: string; right?: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between px-4 py-2.5 border-b border-pcis-border/20">
-      <div className="flex items-center gap-2">
-        {accent && <div className="w-[3px] h-3.5 rounded-full" style={{ backgroundColor: accent }} />}
-        <span className="text-[11px] font-semibold text-pcis-text-secondary uppercase tracking-wider">{title}</span>
-      </div>
-      {right}
-    </div>
-  )
-}
-
-
-// ═══════════════════════════════════════════════════════════════════════════
-// LATEST NEWS FEED — Compact live news panel (replaces Flywheel)
-// ═══════════════════════════════════════════════════════════════════════════
-
-interface NewsItem {
-  id: string
-  title: string
-  link: string
-  source: string
-  publishedAt: string
-  category: string
-}
-
-const NEWS_CAT_COLORS: Record<string, string> = {
-  'real-estate': '#22c55e',
-  'financial': '#06b6d4',
-  'development': '#a78bfa',
-  'regulatory': '#f59e0b',
-  'market': '#ec4899',
-}
-
-const NEWS_CAT_SHORT: Record<string, string> = {
-  'real-estate': 'RE',
-  'financial': 'FIN',
-  'development': 'DEV',
-  'regulatory': 'REG',
-  'market': 'MKT',
-}
-
-function newsTimeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'now'
-  if (mins < 60) return `${mins}m`
-  const hours = Math.floor(mins / 60)
-  if (hours < 24) return `${hours}h`
-  return `${Math.floor(hours / 24)}d`
-}
-
-function LatestNewsFeed() {
+function LatestNewsFeed({ limit = 3 }: { limit?: number }) {
   const [news, setNews] = useState<NewsItem[]>([])
   const [loading, setLoading] = useState(true)
   const ws = useWorkspaceSafe()
@@ -364,7 +348,7 @@ function LatestNewsFeed() {
     let cancelled = false
     async function load() {
       try {
-        const res = await fetch('/api/news?limit=3')
+        const res = await fetch(`/api/news?limit=${limit}`)
         if (!res.ok) return
         const data = await res.json()
         if (!cancelled) setNews(data.articles || [])
@@ -374,61 +358,27 @@ function LatestNewsFeed() {
     load()
     const interval = setInterval(load, 5 * 60 * 1000)
     return () => { cancelled = true; clearInterval(interval) }
-  }, [])
+  }, [limit])
 
   return (
     <Panel>
-      <PanelHeader
-        title="Latest News"
-        accent="#22c55e"
-        right={
-          <button
-            onClick={() => ws?.openPanel?.('news-feed' as PanelType, 'tab')}
-            className="text-[8px] text-pcis-gold/50 hover:text-pcis-gold font-mono uppercase tracking-wider transition-colors"
-          >
-            NWS →
-          </button>
-        }
-      />
+      <PanelHeader title="Market News" accent="#22c55e"
+        right={<button onClick={() => ws?.openPanel?.('news-feed' as PanelType, 'tab')} className="text-[8px] text-pcis-gold/50 hover:text-pcis-gold font-mono uppercase tracking-wider transition-colors">NWS →</button>} />
       <div className="divide-y divide-pcis-border/10">
-        {loading ? (
-          <div className="px-4 py-6 text-center">
-            <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse mx-auto mb-2" />
-            <span className="text-[9px] text-white/30">Loading news...</span>
-          </div>
-        ) : news.length === 0 ? (
-          <div className="px-4 py-6 text-center">
-            <span className="text-[9px] text-white/30">No news available</span>
-          </div>
-        ) : (
-          news.map((item) => {
+        {loading ? <LoadingPulse /> : news.length === 0 ? <EmptyState message="No news available" /> : (
+          news.map(item => {
             const catColor = NEWS_CAT_COLORS[item.category] || '#9ca3af'
             const catShort = NEWS_CAT_SHORT[item.category] || '?'
             return (
-              <a
-                key={item.id}
-                href={item.link}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-start gap-2.5 px-4 py-2 hover:bg-white/[0.02] transition-colors group"
-              >
-                <div
-                  className="w-1 h-full min-h-[24px] rounded-full mt-0.5 shrink-0"
-                  style={{ backgroundColor: catColor, opacity: 0.5 }}
-                />
+              <a key={item.id} href={item.link} target="_blank" rel="noopener noreferrer"
+                className="flex items-start gap-2.5 px-4 py-2 hover:bg-white/[0.02] transition-colors group">
+                <div className="w-1 h-full min-h-[24px] rounded-full mt-0.5 shrink-0" style={{ backgroundColor: catColor, opacity: 0.5 }} />
                 <div className="flex-1 min-w-0">
-                  <p className="text-[9px] font-medium text-white/70 leading-snug line-clamp-2 group-hover:text-pcis-gold transition-colors">
-                    {item.title}
-                  </p>
+                  <p className="text-[9px] font-medium text-white/70 leading-snug line-clamp-2 group-hover:text-pcis-gold transition-colors">{item.title}</p>
                   <div className="flex items-center gap-1.5 mt-0.5">
-                    <span
-                      className="text-[7px] font-mono font-bold"
-                      style={{ color: catColor }}
-                    >
-                      {catShort}
-                    </span>
+                    <span className="text-[7px] font-mono font-bold" style={{ color: catColor }}>{catShort}</span>
                     <span className="text-[7px] text-white/20">{item.source}</span>
-                    <span className="text-[7px] text-white/15 font-mono">{newsTimeAgo(item.publishedAt)}</span>
+                    <span className="text-[7px] text-white/15 font-mono">{ago(item.publishedAt)}</span>
                   </div>
                 </div>
               </a>
@@ -442,446 +392,781 @@ function LatestNewsFeed() {
 
 
 // ═══════════════════════════════════════════════════════════════════════════
-// TOP STATS BAR
+// TODAY VIEW — Action surface powered by V2
 // ═══════════════════════════════════════════════════════════════════════════
 
-function StatsBar({ cieClients }: { cieClients: ReturnType<typeof useCIEClients> }) {
-  const stats = useMemo(() => {
-    const totalClients = cieClients.data?.length || 0
-    const uhnw = cieClients.data?.filter(c => c.client.type === 'UHNW').length || 0
-    const activeDeals = cieClients.data?.filter(c => ['Viewing', 'Offer Made', 'Negotiation'].includes(c.client.dealStage)).length || 0
-    const avgEng = 0
-    const actNow = 0
-    const hotPred = 0
-    return { totalClients, uhnw, activeDeals, actNow, hotPred, avgEng }
-  }, [cieClients.data])
+function TodayView() {
+  const morningBrief = useV2MorningBrief()
+  const triggers = useV2ProactiveTriggers({ status: 'active', limit: 20 })
+  const queue = useV2OpportunityQueue({ limit: 10 })
+  const queueStats = useV2QueueStats()
+  const healthScore = useV2HealthScore()
+
+  const now = new Date()
+  const hour = now.getHours()
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
+  const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long' }).toUpperCase()
+
+  // Mark brief as viewed on first render
+  useEffect(() => {
+    if (morningBrief.data?.id && !morningBrief.data.viewedAt) {
+      v2MarkBriefViewed(morningBrief.data.id)
+    }
+  }, [morningBrief.data?.id, morningBrief.data?.viewedAt])
+
+  const brief = morningBrief.data
+  const meetings = brief?.sections?.meetings || []
+  const alerts = brief?.sections?.clientAlerts || []
+  const opportunities = brief?.sections?.opportunities || []
+  const followUps = brief?.sections?.followUps || []
+  const pipeline = brief?.sections?.pipelineHealth
+
+  const totalBriefActions = meetings.length + alerts.length + opportunities.length + followUps.length
 
   return (
-    <div className="flex items-center gap-6 text-[10px]">
-      <div className="flex items-center gap-1.5">
-        <span className="text-pcis-text-muted">Clients:</span>
-        <span className="font-semibold text-pcis-gold" style={{ fontFamily: "'Playfair Display', serif" }}>{stats.totalClients}</span>
+    <div className="space-y-4">
+
+      {/* ── Greeting + Quick Stats ──────────────────────────── */}
+      <div>
+        <p className="text-[10px] tracking-[0.2em] text-pcis-gold/50 mb-1">{dateStr}</p>
+        <h1 className="text-3xl text-white/90 mb-1" style={{ fontFamily: "'Playfair Display', serif" }}>
+          {greeting}
+        </h1>
+        <p className="text-[11px] text-pcis-text-muted">
+          {totalBriefActions > 0 ? `${totalBriefActions} items today` : 'Loading intelligence...'}
+          {meetings.length > 0 && ` · ${meetings.length} meetings`}
+          {alerts.filter(a => a.severity === 'critical').length > 0 && ` · ${alerts.filter(a => a.severity === 'critical').length} critical alerts`}
+        </p>
       </div>
-      <div className="w-px h-3 bg-pcis-border/30" />
-      <div className="flex items-center gap-1.5">
-        <span className="text-pcis-text-muted">UHNW:</span>
-        <span className="font-mono font-semibold text-pcis-gold">{stats.uhnw}</span>
+
+      {/* ── Quick Stats Bar ────────────────────────────────── */}
+      <div className="flex items-center gap-4">
+        {healthScore.data && (
+          <div className="flex items-center gap-2">
+            <HealthRing score={healthScore.data.overall} size={36} />
+            <div>
+              <div className="text-[9px] text-pcis-text-muted">FORGE Health</div>
+              <div className="text-[10px] font-mono" style={{ color: healthScore.data.overall >= 70 ? '#22c55e' : '#f59e0b' }}>
+                {healthScore.data.trend}
+              </div>
+            </div>
+          </div>
+        )}
+        {queueStats.data && (
+          <>
+            <div className="w-px h-6 bg-pcis-border/20" />
+            <div className="text-center">
+              <div className="text-[14px] font-mono font-bold text-pcis-gold">{queueStats.data.total}</div>
+              <div className="text-[8px] text-pcis-text-muted uppercase">Actions</div>
+            </div>
+            {queueStats.data.bySeverity?.critical > 0 && (
+              <div className="text-center">
+                <div className="text-[14px] font-mono font-bold text-red-400">{queueStats.data.bySeverity.critical}</div>
+                <div className="text-[8px] text-pcis-text-muted uppercase">Critical</div>
+              </div>
+            )}
+            <div className="text-center">
+              <div className="text-[14px] font-mono font-bold text-green-400">{queueStats.data.actedToday}</div>
+              <div className="text-[8px] text-pcis-text-muted uppercase">Done Today</div>
+            </div>
+          </>
+        )}
+        {pipeline && (
+          <>
+            <div className="w-px h-6 bg-pcis-border/20" />
+            <div className="text-center">
+              <div className="text-[14px] font-mono font-bold text-pcis-gold">{pipeline.totalActive}</div>
+              <div className="text-[8px] text-pcis-text-muted uppercase">Pipeline</div>
+            </div>
+            {pipeline.atRiskDeals > 0 && (
+              <div className="text-center">
+                <div className="text-[14px] font-mono font-bold text-red-400">{pipeline.atRiskDeals}</div>
+                <div className="text-[8px] text-pcis-text-muted uppercase">At Risk</div>
+              </div>
+            )}
+          </>
+        )}
       </div>
-      <div className="w-px h-3 bg-pcis-border/30" />
-      <div className="flex items-center gap-1.5">
-        <span className="text-pcis-text-muted">Active Deals:</span>
-        <span className="font-mono font-semibold" style={{ color: '#22c55e' }}>{stats.activeDeals}</span>
+
+      {/* ── Opportunity Queue (primary action surface) ──── */}
+      <Panel>
+        <PanelHeader title="Priority Actions" accent="#ef4444"
+          right={<span className="text-[9px] font-mono text-pcis-text-muted/40">Scored & ranked by V2</span>} />
+        <div className="divide-y divide-pcis-border/10">
+          {queue.loading ? <LoadingPulse /> :
+           !queue.data || queue.data.length === 0 ? <EmptyState message="No priority actions — all clear" /> :
+           queue.data.slice(0, 8).map((item: V2OpportunityItem) => (
+            <div key={item.id} className="px-4 py-3 hover:bg-pcis-gold/[0.02] transition-colors cursor-pointer group">
+              <div className="flex items-start gap-3">
+                <SeverityDot severity={item.severity} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="text-[11px] text-white/70 font-medium truncate">{item.title}</span>
+                    <SeverityBadge severity={item.severity} />
+                  </div>
+                  <p className="text-[10px] text-pcis-text-muted leading-snug truncate">{item.description}</p>
+                  <div className="flex items-center gap-3 mt-1.5">
+                    {item.clientName && <span className="text-[9px] text-pcis-gold/60">{item.clientName}</span>}
+                    <span className="text-[8px] text-pcis-text-muted/40 font-mono">{item.type}</span>
+                    <span className="text-[8px] text-pcis-text-muted/30 font-mono">{ago(item.createdAt)}</span>
+                    <span className="text-[8px] font-mono text-pcis-gold/40">Score: {item.score}</span>
+                  </div>
+                </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); queue.act(item.id, 'acted') }}
+                  className="text-[8px] font-mono uppercase tracking-wider px-2.5 py-1.5 rounded-lg border border-pcis-gold/15 text-pcis-gold/50 hover:text-pcis-gold hover:bg-pcis-gold/[0.06] hover:border-pcis-gold/30 transition-all opacity-0 group-hover:opacity-100"
+                >
+                  Act
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Panel>
+
+      {/* ── Two-column: While You Slept + Meetings ────── */}
+      <div className="grid grid-cols-2 gap-3">
+
+        {/* While you slept — V2 proactive intelligence */}
+        <Panel>
+          <PanelHeader title="While You Slept" accent="#a78bfa"
+            right={
+              <span className="text-[8px] font-mono text-pcis-text-muted/30">
+                {triggers.data?.length || 0} triggers
+              </span>
+            } />
+          <div className="divide-y divide-pcis-border/10">
+            {triggers.loading ? <LoadingPulse /> :
+             !triggers.data || triggers.data.length === 0 ? <EmptyState message="No overnight triggers" /> :
+             triggers.data.slice(0, 6).map((t: V2ProactiveTrigger) => (
+              <div key={t.id} className="px-4 py-2.5 hover:bg-pcis-gold/[0.02] transition-colors">
+                <div className="flex items-start gap-2.5">
+                  <SeverityDot severity={t.severity} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[10px] text-white/60 leading-snug truncate">{t.title}</div>
+                    <div className="text-[9px] text-pcis-text-muted mt-0.5 truncate">{t.description}</div>
+                    <div className="flex items-center gap-2 mt-1">
+                      {t.clientName && <span className="text-[8px] text-pcis-gold/50">{t.clientName}</span>}
+                      <span className="text-[7px] font-mono text-pcis-text-muted/30">{t.triggerType.replace(/_/g, ' ')}</span>
+                      <span className="text-[7px] text-pcis-text-muted/20 font-mono">{ago(t.createdAt)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Panel>
+
+        {/* Today's meetings from morning brief */}
+        <div className="space-y-3">
+          <Panel>
+            <PanelHeader title="Today's Meetings" accent="#06b6d4" />
+            <div className="divide-y divide-pcis-border/10">
+              {morningBrief.loading ? <LoadingPulse /> :
+               meetings.length === 0 ? <EmptyState message="No meetings scheduled" /> :
+               meetings.map((m, i) => (
+                <div key={i} className="px-4 py-2.5">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[9px] font-mono text-pcis-gold/60">
+                      {new Date(m.scheduledAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    <span className="text-[10px] text-white/70">{m.clientName}</span>
+                    <span className="text-[8px] text-pcis-text-muted capitalize">{m.type}</span>
+                  </div>
+                  {m.prepNotes && <p className="text-[9px] text-pcis-text-muted leading-snug">{m.prepNotes}</p>}
+                </div>
+              ))}
+            </div>
+          </Panel>
+
+          {/* Client alerts from morning brief */}
+          {alerts.length > 0 && (
+            <Panel>
+              <PanelHeader title="Client Alerts" accent="#ef4444" />
+              <div className="divide-y divide-pcis-border/10">
+                {alerts.slice(0, 4).map((a: V2BriefAlert, i: number) => (
+                  <div key={i} className="px-4 py-2 flex items-start gap-2.5">
+                    <SeverityDot severity={a.severity} />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[10px] text-white/60 truncate">{a.clientName}</div>
+                      <div className="text-[9px] text-pcis-text-muted truncate">{a.message}</div>
+                    </div>
+                    {a.daysSinceContact && (
+                      <span className="text-[8px] font-mono text-red-400/50">{a.daysSinceContact}d silent</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </Panel>
+          )}
+        </div>
       </div>
-      <div className="w-px h-3 bg-pcis-border/30" />
-      <div className="flex items-center gap-1.5">
-        <span className="text-pcis-text-muted">Actions:</span>
-        <span className="font-mono font-semibold" style={{ color: stats.actNow > 0 ? '#ef4444' : '#22c55e' }}>{stats.actNow}</span>
-      </div>
-      <div className="w-px h-3 bg-pcis-border/30" />
-      <div className="flex items-center gap-1.5">
-        <span className="text-pcis-text-muted">Predictions:</span>
-        <span className="font-mono font-semibold" style={{ color: '#f59e0b' }}>{stats.hotPred}</span>
-      </div>
+
+      {/* ── Market News (existing RSS) ─────────────────── */}
+      <LatestNewsFeed limit={5} />
     </div>
   )
 }
 
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ENGINE GATEWAY CARDS
+// OPERATIONS VIEW — Engine overview (rewired to V2 where possible)
 // ═══════════════════════════════════════════════════════════════════════════
 
-function EngineCards({ cieClients, areas, dashboard }: {
-  cieClients: ReturnType<typeof useCIEClients>
-  areas: ReturnType<typeof useScoutAreas>
-  dashboard: ReturnType<typeof useAdvisorDashboard>
-}) {
+function OperationsView() {
   const router = useRouter()
   const ws = useWorkspaceSafe()
+  const cieClients = useCIEClients()
+  const scoutAreas = useScoutAreas()
+  const advisorDashboard = useAdvisorDashboard()
+  const v2Health = useV2HealthScore()
+  const v2ForgeMetrics = useV2ForgeMetrics()
+  const v2Queue = useV2OpportunityQueue({ limit: 5 })
+  const v2Triggers = useV2ProactiveTriggers({ status: 'active', limit: 5 })
+
+  // ── Engine Cards with V2 metrics ────────────────────
   const engStats = useMemo(() => ({
     E1: {
       metric: `${cieClients.data?.length || 0} profiles`,
-      sub: `Avg engagement: ${cieClients.data && cieClients.data.length > 0 ? Math.round(cieClients.data.reduce((s, c) => s + (c.overallCIEScore || 0), 0) / cieClients.data.length) : 0}`
+      sub: `Avg CIE: ${cieClients.data && cieClients.data.length > 0 ? Math.round(cieClients.data.reduce((s, c) => s + (c.overallCIEScore || 0), 0) / cieClients.data.length) : 0}`,
     },
     E2: {
-      metric: `${areas.data?.length || 0} areas`,
-      sub: `${areas.data?.length || 0} areas tracked`
+      metric: `${scoutAreas.data?.length || 0} areas`,
+      sub: `${scoutAreas.data?.length || 0} areas tracked`,
     },
     E3: {
-      metric: `0 active`,
-      sub: `0 total matches`
+      metric: `${advisorDashboard.data?.topMatches?.length || 0} active`,
+      sub: `${advisorDashboard.data?.overview?.highScoringUnpresentedMatches || 0} unpresented`,
     },
     E4: {
-      metric: `${dashboard.data?.overview.pendingAlerts || 0} alerts`,
-      sub: `${dashboard.data?.overview.urgentRecommendations || 0} recommendations`
+      metric: v2ForgeMetrics.data ? `${v2ForgeMetrics.data.actionRate}% action rate` : `${advisorDashboard.data?.overview?.pendingAlerts || 0} alerts`,
+      sub: v2Health.data ? `Health: ${v2Health.data.overall}/100` : `${advisorDashboard.data?.overview?.urgentRecommendations || 0} recommendations`,
     },
-  }), [cieClients.data, areas.data, dashboard.data])
+  }), [cieClients.data, scoutAreas.data, advisorDashboard.data, v2ForgeMetrics.data, v2Health.data])
 
   const handleEngineClick = useCallback((e: typeof engineDefs[number]) => {
-    if (ws) {
-      ws.openPanel(e.panelType, 'tab')
-    } else {
-      router.push(e.route)
-    }
+    ws ? ws.openPanel(e.panelType, 'tab') : router.push(e.route)
   }, [ws, router])
 
+  // ── Portfolio Health ────────────────────────────────
+  const portfolioData = useMemo(() => {
+    const dist: Record<EngagementStatus, number> = { thriving: 0, active: 0, cooling: 0, cold: 0, dormant: 0 }
+    engagementMetrics.forEach(e => dist[e.status]++)
+    const pipeline: Record<DealStage, number> = { 'Lead In': 0, 'Discovery': 0, 'Viewing': 0, 'Offer Made': 0, 'Negotiation': 0, 'Closed Won': 0 }
+    clients.forEach(c => pipeline[c.dealStage]++)
+    return { dist, pipeline }
+  }, [])
+
+  const donutData = (['thriving', 'active', 'cooling', 'cold', 'dormant'] as EngagementStatus[])
+    .filter(s => portfolioData.dist[s] > 0)
+    .map(s => ({ label: statusMap[s].label, value: portfolioData.dist[s], color: statusMap[s].color }))
+  const pipelineMax = Math.max(...DEAL_STAGES.map(s => portfolioData.pipeline[s]), 1)
+
+  const gradeColors: Record<string, string> = { 'A+': '#d4a574', 'A': '#22c55e', 'B+': '#3b82f6', 'B': '#9ca3af', 'C': '#ef4444', 'D': '#6b7280' }
+
   return (
-    <div className="grid grid-cols-4 gap-3">
-      {engineDefs.map(e => (
-        <Panel key={e.id} onClick={() => handleEngineClick(e)}
-          className="group hover:border-opacity-50 transition-all">
-          <div className="px-4 py-3.5">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: e.color, opacity: 0.6 }} />
-                <span className="text-[10px] font-mono font-bold" style={{ color: e.color }}>{e.id}</span>
-              </div>
-              <kbd className="text-[8px] font-mono text-pcis-text-muted/40 group-hover:text-pcis-text-muted transition-colors">{e.key}</kbd>
+    <div className="space-y-4">
+
+      {/* ── Top Stats ─────────────────────────────────── */}
+      <div className="flex items-center gap-6 text-[10px]">
+        <div className="flex items-center gap-1.5">
+          <span className="text-pcis-text-muted">Clients:</span>
+          <span className="font-semibold text-pcis-gold" style={{ fontFamily: "'Playfair Display', serif" }}>{cieClients.data?.length || 0}</span>
+        </div>
+        <div className="w-px h-3 bg-pcis-border/30" />
+        <div className="flex items-center gap-1.5">
+          <span className="text-pcis-text-muted">UHNW:</span>
+          <span className="font-mono font-semibold text-pcis-gold">{cieClients.data?.filter(c => c.client.type === 'UHNW').length || 0}</span>
+        </div>
+        <div className="w-px h-3 bg-pcis-border/30" />
+        <div className="flex items-center gap-1.5">
+          <span className="text-pcis-text-muted">Active Deals:</span>
+          <span className="font-mono font-semibold" style={{ color: '#22c55e' }}>{cieClients.data?.filter(c => ['Viewing', 'Offer Made', 'Negotiation'].includes(c.client.dealStage)).length || 0}</span>
+        </div>
+        {v2Health.data && (
+          <>
+            <div className="w-px h-3 bg-pcis-border/30" />
+            <div className="flex items-center gap-1.5">
+              <span className="text-pcis-text-muted">FORGE:</span>
+              <span className="font-mono font-semibold" style={{ color: v2Health.data.overall >= 70 ? '#22c55e' : '#f59e0b' }}>{v2Health.data.overall}/100</span>
             </div>
-            <div className="text-[13px] font-semibold text-white/80 mb-0.5" style={{ fontFamily: "'Playfair Display', serif" }}>{e.name}</div>
-            <div className="text-[10px] text-pcis-text-secondary font-mono">{engStats[e.id as keyof typeof engStats].metric}</div>
-            <div className="text-[9px] text-pcis-text-muted mt-0.5">{engStats[e.id as keyof typeof engStats].sub}</div>
+          </>
+        )}
+        {v2ForgeMetrics.data && (
+          <>
+            <div className="w-px h-3 bg-pcis-border/30" />
+            <div className="flex items-center gap-1.5">
+              <span className="text-pcis-text-muted">Action Rate:</span>
+              <span className="font-mono font-semibold" style={{ color: '#a78bfa' }}>{v2ForgeMetrics.data.actionRate}%</span>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* ── Engine Gateway Cards ───────────────────────── */}
+      <div className="grid grid-cols-4 gap-3">
+        {engineDefs.map(e => (
+          <Panel key={e.id} onClick={() => handleEngineClick(e)} className="group hover:border-opacity-50 transition-all">
+            <div className="px-4 py-3.5">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: e.color, opacity: 0.6 }} />
+                  <span className="text-[10px] font-mono font-bold" style={{ color: e.color }}>{e.id}</span>
+                </div>
+                <kbd className="text-[8px] font-mono text-pcis-text-muted/40 group-hover:text-pcis-text-muted transition-colors">{e.key}</kbd>
+              </div>
+              <div className="text-[13px] font-semibold text-white/80 mb-0.5" style={{ fontFamily: "'Playfair Display', serif" }}>{e.name}</div>
+              <div className="text-[10px] text-pcis-text-secondary font-mono">{engStats[e.id as keyof typeof engStats].metric}</div>
+              <div className="text-[9px] text-pcis-text-muted mt-0.5">{engStats[e.id as keyof typeof engStats].sub}</div>
+            </div>
+          </Panel>
+        ))}
+      </div>
+
+      {/* ── Portfolio Health + Pipeline + News ──────────── */}
+      <div className="grid grid-cols-3 gap-3">
+        <Panel>
+          <PanelHeader title="Portfolio Health" accent="#06b6d4" />
+          <div className="px-4 py-4 flex items-center gap-4">
+            <DonutChart data={donutData} size={80} strokeWidth={10} />
+            <div className="flex-1">
+              <div className="flex flex-col gap-1.5">
+                {donutData.map(d => (
+                  <div key={d.label} className="flex items-center gap-2 text-[10px] text-pcis-text-secondary">
+                    <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: d.color }} />
+                    <span className="flex-1">{d.label}</span>
+                    <span className="font-mono font-semibold" style={{ color: d.color }}>{d.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </Panel>
-      ))}
+
+        <Panel>
+          <PanelHeader title="Deal Pipeline" accent="#22c55e" />
+          <div className="px-4 py-4">
+            <div className="flex items-end gap-2 h-[64px]">
+              {DEAL_STAGES.map(stage => {
+                const h = Math.max(4, (portfolioData.pipeline[stage] / pipelineMax) * 56)
+                return (
+                  <div key={stage} className="flex-1 flex flex-col items-center justify-end">
+                    <span className="text-[8px] font-mono mb-1" style={{ color: dealStageColors[stage] }}>{portfolioData.pipeline[stage]}</span>
+                    <div className="w-full rounded-t" style={{ height: h, background: `linear-gradient(to top, ${dealStageColors[stage]}, ${dealStageColors[stage]}60)` }} />
+                  </div>
+                )
+              })}
+            </div>
+            <div className="flex gap-2 mt-2">
+              {DEAL_STAGES.map(stage => (
+                <div key={stage} className="flex-1 text-center text-[7px] text-pcis-text-muted uppercase tracking-wide">{stage.split(' ').map(w => w[0]).join('')}</div>
+              ))}
+            </div>
+          </div>
+        </Panel>
+
+        <LatestNewsFeed limit={3} />
+      </div>
+
+      {/* ── Client Watchlist ────────────────────────────── */}
+      <Panel>
+        <PanelHeader title="Client Watchlist" accent="#06b6d4"
+          right={<button onClick={() => router.push('/clients')} className="text-[9px] text-pcis-gold/50 hover:text-pcis-gold transition-colors">View all →</button>} />
+        <div className="overflow-x-auto">
+          <table className="w-full text-[10px]">
+            <thead>
+              <tr className="text-pcis-text-muted text-[8px] uppercase tracking-wider border-b border-pcis-border/10">
+                <th className="text-left py-2 px-4 font-normal">Client</th>
+                <th className="text-left py-2 px-2 font-normal">Type</th>
+                <th className="text-center py-2 px-2 font-normal">Engagement</th>
+                <th className="text-left py-2 px-2 font-normal">Stage</th>
+                <th className="text-left py-2 px-2 font-normal">Top Dimension</th>
+                <th className="text-center py-2 px-2 font-normal">Triggers</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(cieClients.data || []).sort((a, b) => b.overallCIEScore - a.overallCIEScore).slice(0, 10).map(({ client, overallCIEScore: score, topDimensions }) => {
+                // Check if this client has active triggers
+                const clientTriggers = v2Triggers.data?.filter(t => t.clientId === client.id) || []
+                return (
+                  <tr key={client.id}
+                    className="border-b border-pcis-border/10 hover:bg-pcis-gold/[0.03] cursor-pointer transition-colors"
+                    onClick={() => router.push(`/clients?id=${client.id}`)}>
+                    <td className="py-2 px-4">
+                      <div className="flex items-center gap-2">
+                        <div className="w-[5px] h-[5px] rounded-full bg-pcis-gold/40" />
+                        <span className="text-white/70 font-medium">{client.name}</span>
+                      </div>
+                    </td>
+                    <td className="py-2 px-2">
+                      <span className={`text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded ${client.type === 'UHNW' ? 'text-pcis-gold bg-pcis-gold/10' : 'text-pcis-text-muted bg-white/[0.03]'}`}>{client.type}</span>
+                    </td>
+                    <td className="py-2 px-2">
+                      <div className="flex items-center gap-1.5 justify-center">
+                        <div className="w-12 h-[4px] bg-white/[0.04] rounded-full overflow-hidden">
+                          <div className="h-full rounded-full" style={{ width: `${score}%`, backgroundColor: score >= 60 ? '#22c55e' : score >= 40 ? '#f59e0b' : '#ef4444' }} />
+                        </div>
+                        <span className="text-[9px] font-mono" style={{ color: score >= 60 ? '#22c55e' : score >= 40 ? '#f59e0b' : '#ef4444' }}>{score}</span>
+                      </div>
+                    </td>
+                    <td className="py-2 px-2">
+                      <span className="text-[9px]" style={{ color: dealStageColors[client.dealStage] }}>{client.dealStage}</span>
+                    </td>
+                    <td className="py-2 px-2">
+                      <span className="text-white/40 text-[9px]">{topDimensions?.[0]?.dimension || '—'}</span>
+                    </td>
+                    <td className="py-2 px-2 text-center">
+                      {clientTriggers.length > 0 ? (
+                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-red-500/[0.08] text-red-400/70">{clientTriggers.length}</span>
+                      ) : (
+                        <span className="text-[9px] text-pcis-text-muted/30">—</span>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+
+      {/* ── Bottom: V2 Queue + Triggers + Intel + Market ── */}
+      <div className="grid grid-cols-4 gap-3">
+
+        {/* V2 Opportunity Queue */}
+        <Panel>
+          <PanelHeader title="Action Queue" accent="#ef4444"
+            right={<span className="text-[8px] text-pcis-gold/50 font-mono">V2</span>} />
+          <div className="divide-y divide-pcis-border/10">
+            {v2Queue.loading ? <LoadingPulse /> :
+             !v2Queue.data || v2Queue.data.length === 0 ? <EmptyState message="Queue clear" /> :
+             v2Queue.data.slice(0, 5).map(item => (
+              <div key={item.id} className="px-4 py-2.5 hover:bg-pcis-gold/[0.02] transition-colors cursor-pointer">
+                <div className="flex items-start gap-2">
+                  <SeverityDot severity={item.severity} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[10px] text-white/60 truncate leading-snug">{item.title}</div>
+                    <div className="text-[9px] text-pcis-text-muted mt-0.5">{item.clientName || item.type} · {ago(item.createdAt)}</div>
+                  </div>
+                  <SeverityBadge severity={item.severity} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </Panel>
+
+        {/* V2 Proactive Triggers */}
+        <Panel>
+          <PanelHeader title="Active Triggers" accent="#a78bfa"
+            right={<span className="text-[8px] text-pcis-gold/50 font-mono">V2</span>} />
+          <div className="divide-y divide-pcis-border/10">
+            {v2Triggers.loading ? <LoadingPulse /> :
+             !v2Triggers.data || v2Triggers.data.length === 0 ? <EmptyState message="No active triggers" /> :
+             v2Triggers.data.slice(0, 5).map(t => (
+              <div key={t.id} className="px-4 py-2.5 hover:bg-pcis-gold/[0.02] transition-colors cursor-pointer">
+                <div className="flex items-start gap-2">
+                  <SeverityDot severity={t.severity} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[10px] text-white/60 truncate leading-snug">{t.title}</div>
+                    <div className="text-[9px] text-pcis-text-muted mt-0.5">{t.clientName || t.triggerType.replace(/_/g, ' ')} · {ago(t.createdAt)}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Panel>
+
+        {/* Market Intel (from SCOUT) */}
+        <Panel>
+          <PanelHeader title="Market Intel" accent="#d4a574"
+            right={<button onClick={() => ws ? ws.openPanel('scout-dashboard', 'tab') : router.push('/intel')} className="text-[9px] text-pcis-gold/50 hover:text-pcis-gold transition-colors">SCOUT →</button>} />
+          <div className="divide-y divide-pcis-border/10">
+            {intelFeed.slice(0, 4).map(item => (
+              <div key={item.id} className="px-4 py-2.5 hover:bg-pcis-gold/[0.02] transition-colors cursor-pointer" onClick={() => ws ? ws.openPanel('scout-dashboard', 'tab') : router.push('/intel')}>
+                <div className="flex gap-2.5">
+                  <div className="w-[3px] flex-shrink-0 rounded-full self-stretch"
+                    style={{ backgroundColor: item.urgency === 'High' ? '#ef4444' : item.urgency === 'Medium' ? '#d4a574' : '#6b7280' }} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[10px] text-white/50 leading-snug truncate">{item.headline}</div>
+                    <div className="text-[8px] text-pcis-text-muted mt-1">{item.type} · {ago(item.timestamp)}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Panel>
+
+        {/* Market Data */}
+        <Panel>
+          <PanelHeader title="Market Data" />
+          <div className="divide-y divide-pcis-border/10">
+            {macroIndicators.slice(0, 5).map(m => (
+              <div key={m.id} className="px-4 py-2 flex items-center gap-2">
+                <div className="flex-1 min-w-0">
+                  <span className="text-[9px] text-pcis-text-muted truncate block">{m.label}</span>
+                </div>
+                <MiniSparkline data={m.sparkline} color={m.trend >= 0 ? '#22c55e' : '#ef4444'} width={40} height={14} />
+                <span className="text-[10px] font-mono text-white/50 w-16 text-right flex-shrink-0">{m.value}</span>
+                <span className="text-[9px] font-mono w-10 text-right flex-shrink-0" style={{ color: m.trend >= 0 ? '#22c55e' : '#ef4444' }}>
+                  {m.trend >= 0 ? '+' : ''}{m.trend}%
+                </span>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      </div>
+
+      {/* Morning Brief Orb */}
+      <DashboardBriefOrb />
     </div>
   )
 }
 
 
 // ═══════════════════════════════════════════════════════════════════════════
-// CLIENT WATCHLIST
+// THIS WEEK VIEW — Review + Analytics powered by V2
 // ═══════════════════════════════════════════════════════════════════════════
 
-function ClientWatchlist({ cieClients }: { cieClients: ReturnType<typeof useCIEClients> }) {
-  const router = useRouter()
+function WeekView() {
+  const weeklyReport = useV2WeeklyReport()
+  const qualityGaps = useV2QualityGaps()
+  const qualityHistory = useV2QualityHistory('weekly')
+  const brokerIntel = useV2BrokerIntelligence()
+  const forgeMetrics = useV2ForgeMetrics()
+  const v2Health = useV2HealthScore()
 
-  const list = useMemo(() => {
-    if (!cieClients.data || cieClients.data.length === 0) return []
-    return cieClients.data
-      .map(c => ({
-        client: c.client,
-        score: c.overallCIEScore,
-        topDimension: c.topDimensions?.[0]?.dimension || 'N/A'
-      }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 10)
-  }, [cieClients.data])
+  const report = weeklyReport.data
 
   return (
-    <Panel>
-      <PanelHeader title="Client Watchlist" accent="#06b6d4"
-        right={<button onClick={() => router.push('/clients')} className="text-[9px] text-pcis-gold/50 hover:text-pcis-gold transition-colors">View all →</button>} />
-      <div className="overflow-x-auto">
-        <table className="w-full text-[10px]">
-          <thead>
-            <tr className="text-pcis-text-muted text-[8px] uppercase tracking-wider border-b border-pcis-border/10">
-              <th className="text-left py-2 px-4 font-normal">Client</th>
-              <th className="text-left py-2 px-2 font-normal">Type</th>
-              <th className="text-center py-2 px-2 font-normal">Status</th>
-              <th className="text-center py-2 px-2 font-normal">Engagement</th>
-              <th className="text-left py-2 px-2 font-normal">Stage</th>
-              <th className="text-left py-2 px-2 font-normal">Prediction</th>
-              <th className="text-right py-2 px-4 font-normal">Budget</th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.map(({ client, score, topDimension }, idx) => (
-              <tr key={client.id}
-                className="border-b border-pcis-border/10 hover:bg-pcis-gold/[0.03] cursor-pointer transition-colors"
-                onClick={() => router.push(`/clients?id=${client.id}`)}>
-                <td className="py-2 px-4">
-                  <div className="flex items-center gap-2">
-                    <div className="w-[5px] h-[5px] rounded-full bg-pcis-gold/40" />
-                    <span className="text-white/70 font-medium">{client.name}</span>
-                  </div>
-                </td>
-                <td className="py-2 px-2">
-                  <span className={`text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded
-                    ${client.type === 'UHNW' ? 'text-pcis-gold bg-pcis-gold/10' : 'text-pcis-text-muted bg-white/[0.03]'}`}>
-                    {client.type}
-                  </span>
-                </td>
-                <td className="py-2 px-2 text-center">
-                  <span className="text-[9px] font-medium text-pcis-gold/60">
-                    Active
-                  </span>
-                </td>
-                <td className="py-2 px-2">
-                  <div className="flex items-center gap-1.5 justify-center">
-                    <div className="w-12 h-[4px] bg-white/[0.04] rounded-full overflow-hidden">
-                      <div className="h-full rounded-full" style={{
-                        width: `${score}%`,
-                        backgroundColor: score >= 60 ? '#22c55e' : score >= 40 ? '#f59e0b' : '#ef4444',
-                      }} />
-                    </div>
-                    <span className="text-[9px] font-mono" style={{
-                      color: score >= 60 ? '#22c55e' : score >= 40 ? '#f59e0b' : '#ef4444',
-                    }}>{score}</span>
-                  </div>
-                </td>
-                <td className="py-2 px-2">
-                  <span className="text-[9px]" style={{ color: dealStageColors[client.dealStage] }}>{client.dealStage}</span>
-                </td>
-                <td className="py-2 px-2">
-                  <span className="text-white/40 text-[9px]">{topDimension}</span>
-                </td>
-                <td className="py-2 px-4 text-right">
-                  <span className="text-pcis-text-secondary text-[9px] font-mono">—</span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div className="space-y-4">
+
+      {/* ── Header ──────────────────────────────────────── */}
+      <div>
+        <h2 className="text-xl text-white/90 mb-1" style={{ fontFamily: "'Playfair Display', serif" }}>
+          This Week
+        </h2>
+        <p className="text-[11px] text-pcis-text-muted">
+          {report ? `Week of ${new Date(report.weekStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — ${new Date(report.weekEnd).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : 'Loading weekly synthesis...'}
+        </p>
       </div>
-    </Panel>
-  )
-}
 
+      {/* ── Executive Summary ──────────────────────────── */}
+      {report?.executiveSummary && (
+        <Panel>
+          <PanelHeader title="Executive Summary" accent="#d4a574" />
+          <div className="px-4 py-4">
+            <p className="text-[11px] text-white/60 leading-relaxed">{report.executiveSummary}</p>
+          </div>
+        </Panel>
+      )}
 
-// ═══════════════════════════════════════════════════════════════════════════
-// PORTFOLIO HEALTH + PIPELINE
-// ═══════════════════════════════════════════════════════════════════════════
+      {/* ── Key Metrics Grid ──────────────────────────── */}
+      <div className="grid grid-cols-4 gap-3">
+        {v2Health.data && (
+          <Panel>
+            <div className="px-4 py-4 text-center">
+              <HealthRing score={v2Health.data.overall} size={56} />
+              <div className="text-[9px] text-pcis-text-muted mt-2 uppercase tracking-wider">FORGE Health</div>
+              <div className="text-[10px] font-mono mt-1" style={{ color: v2Health.data.overall >= 70 ? '#22c55e' : '#f59e0b' }}>
+                {v2Health.data.trend}
+              </div>
+            </div>
+          </Panel>
+        )}
+        {forgeMetrics.data && (
+          <>
+            <Panel>
+              <div className="px-4 py-4 text-center">
+                <div className="text-2xl font-light text-pcis-gold" style={{ fontFamily: "'Playfair Display', serif" }}>
+                  {forgeMetrics.data.totalInteractions}
+                </div>
+                <div className="text-[9px] text-pcis-text-muted mt-1 uppercase tracking-wider">Total Outputs</div>
+                <div className="text-[10px] font-mono text-white/40 mt-1">
+                  Avg quality: {forgeMetrics.data.avgQualityScore?.toFixed(1) || '—'}
+                </div>
+              </div>
+            </Panel>
+            <Panel>
+              <div className="px-4 py-4 text-center">
+                <div className="text-2xl font-light" style={{ fontFamily: "'Playfair Display', serif", color: '#22c55e' }}>
+                  {forgeMetrics.data.actionRate}%
+                </div>
+                <div className="text-[9px] text-pcis-text-muted mt-1 uppercase tracking-wider">Action Rate</div>
+                <div className="text-[10px] font-mono text-white/40 mt-1">
+                  Outputs acted on
+                </div>
+              </div>
+            </Panel>
+          </>
+        )}
+        {brokerIntel.data?.benchmarks && (
+          <Panel>
+            <div className="px-4 py-4 text-center">
+              <div className="text-2xl font-light text-pcis-gold" style={{ fontFamily: "'Playfair Display', serif" }}>
+                #{brokerIntel.data.benchmarks.rank}
+              </div>
+              <div className="text-[9px] text-pcis-text-muted mt-1 uppercase tracking-wider">Your Rank</div>
+              <div className="text-[10px] font-mono text-white/40 mt-1">
+                of {brokerIntel.data.benchmarks.totalBrokers} brokers
+              </div>
+            </div>
+          </Panel>
+        )}
+      </div>
 
-function PortfolioHealth() {
-  const data = useMemo(() => {
-    const dist: Record<EngagementStatus, number> = { thriving: 0, active: 0, cooling: 0, cold: 0, dormant: 0 }
-    engagementMetrics.forEach(e => dist[e.status]++)
+      {/* ── Two-column: Quality Gaps + Broker Intelligence ── */}
+      <div className="grid grid-cols-2 gap-3">
 
-    const pipeline: Record<DealStage, number> = { 'Lead In': 0, 'Discovery': 0, 'Viewing': 0, 'Offer Made': 0, 'Negotiation': 0, 'Closed Won': 0 }
-    clients.forEach(c => pipeline[c.dealStage]++)
+        {/* Quality Gaps */}
+        <Panel>
+          <PanelHeader title="Quality Gaps" accent="#ef4444" />
+          <div className="divide-y divide-pcis-border/10">
+            {qualityGaps.loading ? <LoadingPulse /> :
+             !qualityGaps.data || qualityGaps.data.length === 0 ? <EmptyState message="No quality gaps detected" /> :
+             qualityGaps.data.slice(0, 6).map((gap, i) => (
+              <div key={i} className="px-4 py-2.5">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] text-white/60">{gap.dimension}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[9px] font-mono text-red-400/60">{gap.currentScore.toFixed(1)}</span>
+                    <span className="text-[8px] text-pcis-text-muted">→</span>
+                    <span className="text-[9px] font-mono text-green-400/60">{gap.bestInClass.toFixed(1)}</span>
+                  </div>
+                </div>
+                <div className="w-full h-[3px] bg-white/[0.04] rounded-full overflow-hidden">
+                  <div className="h-full rounded-full bg-gradient-to-r from-red-500/60 to-amber-500/60"
+                    style={{ width: `${(gap.currentScore / gap.bestInClass) * 100}%` }} />
+                </div>
+                {gap.recommendation && (
+                  <p className="text-[8px] text-pcis-text-muted mt-1 truncate">{gap.recommendation}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </Panel>
 
-    const avgScore = Math.round(engagementMetrics.reduce((s, e) => s + e.engagementScore, 0) / engagementMetrics.length)
-    const trend = engagementMetrics.slice(0, 7).map(e => e.engagementScore).reverse()
+        {/* Broker Intelligence */}
+        <Panel>
+          <PanelHeader title="Your Intelligence" accent="#a78bfa" />
+          <div className="px-4 py-4 space-y-4">
+            {brokerIntel.loading ? <LoadingPulse /> :
+             !brokerIntel.data ? <EmptyState message="Intelligence not computed yet" /> : (
+              <>
+                {/* Workflow Patterns */}
+                {brokerIntel.data.workflowPatterns && (
+                  <div>
+                    <div className="text-[9px] text-pcis-text-muted uppercase tracking-wider mb-2">Workflow Patterns</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="bg-white/[0.02] rounded-lg px-3 py-2">
+                        <div className="text-[8px] text-pcis-text-muted">Avg Session</div>
+                        <div className="text-[11px] font-mono text-white/60">{brokerIntel.data.workflowPatterns.avgSessionMinutes}min</div>
+                      </div>
+                      <div className="bg-white/[0.02] rounded-lg px-3 py-2">
+                        <div className="text-[8px] text-pcis-text-muted">Peak Hours</div>
+                        <div className="text-[11px] font-mono text-white/60">
+                          {brokerIntel.data.workflowPatterns.peakHours?.slice(0, 2).map(h => `${h}:00`).join(', ') || '—'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
-    return { dist, pipeline, avgScore, trend }
-  }, [])
+                {/* Neglected Clients */}
+                {brokerIntel.data.clientPortfolio?.neglectedClients?.length > 0 && (
+                  <div>
+                    <div className="text-[9px] text-pcis-text-muted uppercase tracking-wider mb-2">
+                      Neglected Clients ({brokerIntel.data.clientPortfolio.neglectedClients.length})
+                    </div>
+                    <div className="space-y-1.5">
+                      {brokerIntel.data.clientPortfolio.neglectedClients.slice(0, 4).map((c, i) => (
+                        <div key={i} className="flex items-center gap-2 text-[10px]">
+                          <div className="w-[5px] h-[5px] rounded-full bg-red-500/50" />
+                          <span className="text-white/50 flex-1 truncate">{c.clientName}</span>
+                          <span className="font-mono text-red-400/60 text-[9px]">{c.daysSinceContact}d</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
-  const donutData = (['thriving', 'active', 'cooling', 'cold', 'dormant'] as EngagementStatus[])
-    .filter(s => data.dist[s] > 0)
-    .map(s => ({ label: statusMap[s].label, value: data.dist[s], color: statusMap[s].color }))
+                {/* Suggestions */}
+                {brokerIntel.data.suggestions?.length > 0 && (
+                  <div>
+                    <div className="text-[9px] text-pcis-text-muted uppercase tracking-wider mb-2">AI Suggestions</div>
+                    <div className="space-y-1.5">
+                      {brokerIntel.data.suggestions.slice(0, 3).map((s, i) => (
+                        <div key={i} className="flex items-start gap-2">
+                          <div className="w-1 h-1 rounded-full bg-pcis-gold/40 mt-1.5 flex-shrink-0" />
+                          <p className="text-[9px] text-white/40 leading-snug">{s}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </Panel>
+      </div>
 
-  const pipelineMax = Math.max(...DEAL_STAGES.map(s => data.pipeline[s]), 1)
+      {/* ── Quality Trend Chart ────────────────────────── */}
+      {qualityHistory.data && qualityHistory.data.length > 1 && (
+        <Panel>
+          <PanelHeader title="Quality Trend" accent="#22c55e" />
+          <div className="px-4 py-4">
+            <MiniSparkline
+              data={qualityHistory.data.map(h => h.overall)}
+              color="#22c55e"
+              width={600}
+              height={48}
+            />
+            <div className="flex justify-between mt-2">
+              <span className="text-[8px] text-pcis-text-muted font-mono">
+                {new Date(qualityHistory.data[0].date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              </span>
+              <span className="text-[8px] text-pcis-text-muted font-mono">
+                {new Date(qualityHistory.data[qualityHistory.data.length - 1].date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              </span>
+            </div>
+          </div>
+        </Panel>
+      )}
 
-  return (
-    <div className="grid grid-cols-3 gap-3">
-      {/* Engagement Health */}
-      <Panel>
-        <PanelHeader title="Portfolio Health" accent="#06b6d4" />
-        <div className="px-4 py-4 flex items-center gap-4">
-          <DonutChart data={donutData} size={80} strokeWidth={10} />
-          <div className="flex-1">
-            <div className="flex flex-col gap-1.5">
-              {donutData.map(d => (
-                <div key={d.label} className="flex items-center gap-2 text-[10px] text-pcis-text-secondary">
-                  <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: d.color }} />
-                  <span className="flex-1">{d.label}</span>
-                  <span className="font-mono font-semibold" style={{ color: d.color }}>{d.value}</span>
+      {/* ── FORGE Output Types Breakdown ───────────────── */}
+      {forgeMetrics.data?.topOutputTypes && forgeMetrics.data.topOutputTypes.length > 0 && (
+        <Panel>
+          <PanelHeader title="Output Performance" accent="#d4a574" />
+          <div className="px-4 py-3">
+            <div className="grid grid-cols-2 gap-2">
+              {forgeMetrics.data.topOutputTypes.slice(0, 6).map((t, i) => (
+                <div key={i} className="flex items-center gap-3 py-1.5">
+                  <span className="text-[10px] text-white/50 flex-1 truncate capitalize">{t.type.replace(/_/g, ' ')}</span>
+                  <span className="text-[9px] font-mono text-pcis-gold/60">{t.count}</span>
+                  <div className="w-8 h-[3px] bg-white/[0.04] rounded-full overflow-hidden">
+                    <div className="h-full rounded-full bg-pcis-gold/40" style={{ width: `${Math.min(100, (t.avgQuality / 10) * 100)}%` }} />
+                  </div>
+                  <span className="text-[8px] font-mono text-white/30">{t.avgQuality?.toFixed(1)}</span>
                 </div>
               ))}
             </div>
           </div>
-        </div>
-      </Panel>
-
-      {/* Pipeline */}
-      <Panel>
-        <PanelHeader title="Deal Pipeline" accent="#22c55e" />
-        <div className="px-4 py-4">
-          <div className="flex items-end gap-2 h-[64px]">
-            {DEAL_STAGES.map(stage => {
-              const h = Math.max(4, (data.pipeline[stage] / pipelineMax) * 56)
-              return (
-                <div key={stage} className="flex-1 flex flex-col items-center justify-end">
-                  <span className="text-[8px] font-mono mb-1" style={{ color: dealStageColors[stage] }}>{data.pipeline[stage]}</span>
-                  <div className="w-full rounded-t" style={{
-                    height: h,
-                    background: `linear-gradient(to top, ${dealStageColors[stage]}, ${dealStageColors[stage]}60)`,
-                  }} />
-                </div>
-              )
-            })}
-          </div>
-          <div className="flex gap-2 mt-2">
-            {DEAL_STAGES.map(stage => (
-              <div key={stage} className="flex-1 text-center text-[7px] text-pcis-text-muted uppercase tracking-wide">{stage.split(' ').map(w => w[0]).join('')}</div>
-            ))}
-          </div>
-        </div>
-      </Panel>
-
-      {/* Latest News — Live Feed */}
-      <LatestNewsFeed />
+        </Panel>
+      )}
     </div>
   )
 }
 
 
 // ═══════════════════════════════════════════════════════════════════════════
-// BOTTOM ROW: Matches + Actions + Intel + Market
-// ═══════════════════════════════════════════════════════════════════════════
-
-function BottomRow() {
-  const router = useRouter()
-  const ws = useWorkspaceSafe()
-
-  const activeMatches = useMemo(() =>
-    matchStages
-      .filter(m => m.stage !== 'Identified' && m.stage !== 'Closed')
-      .sort((a, b) => new Date(b.stageChangedAt).getTime() - new Date(a.stageChangedAt).getTime())
-      .slice(0, 5)
-      .map(m => ({
-        match: m,
-        client: clients.find(c => c.id === m.clientId)!,
-        property: properties.find(p => p.id === m.propertyId)!,
-      })),
-  [])
-
-  const urgentRecs = useMemo(() =>
-    recommendations
-      .filter(r => r.urgency === 'Act')
-      .slice(0, 4)
-      .map(r => ({ rec: r, client: clients.find(c => c.id === r.clientId)! })),
-  [])
-
-  const topIntel = useMemo(() => intelFeed.slice(0, 4), [])
-
-  const macros = useMemo(() => macroIndicators.slice(0, 5), [])
-
-  const gradeColors: Record<string, string> = {
-    'A+': '#d4a574', 'A': '#22c55e', 'B+': '#3b82f6', 'B': '#9ca3af', 'C': '#ef4444', 'D': '#6b7280'
-  }
-
-  return (
-    <div className="grid grid-cols-4 gap-3">
-
-      {/* Active Matches */}
-      <Panel>
-        <PanelHeader title="Active Matches" accent="#22c55e"
-          right={<button onClick={() => ws ? ws.openPanel('engine-dashboard', 'tab') : router.push('/matches')} className="text-[9px] text-pcis-gold/50 hover:text-pcis-gold transition-colors">E3 →</button>} />
-        <div className="divide-y divide-pcis-border/10">
-          {activeMatches.map(({ match, client, property }) => (
-            <div key={match.id} className="px-4 py-2.5 hover:bg-pcis-gold/[0.02] transition-colors cursor-pointer" onClick={() => ws ? ws.openPanel('engine-dashboard', 'tab') : router.push('/matches')}>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-[10px] font-mono font-bold" style={{ color: gradeColors[match.grade] }}>{match.grade}</span>
-                <span className="text-[10px] text-white/60">{client.initials}</span>
-                <span className="text-pcis-text-muted">→</span>
-                <span className="text-[10px] text-white/50 truncate">{property.name}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="flex-1 h-[3px] bg-white/[0.04] rounded-full overflow-hidden">
-                  <div className="h-full rounded-full" style={{ width: `${match.overallScore * 100}%`, backgroundColor: gradeColors[match.grade] }} />
-                </div>
-                <span className="text-[8px] text-pcis-text-muted font-mono">{match.stage}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </Panel>
-
-      {/* Action Queue */}
-      <Panel>
-        <PanelHeader title="Action Queue" accent="#ef4444"
-          right={<button onClick={() => ws ? ws.openPanel('forge-dashboard', 'tab') : router.push('/recommendations')} className="text-[9px] text-pcis-gold/50 hover:text-pcis-gold transition-colors">E4 →</button>} />
-        <div className="divide-y divide-pcis-border/10">
-          {urgentRecs.map(({ rec, client }) => (
-            <div key={rec.id} className="px-4 py-2.5 hover:bg-pcis-gold/[0.02] transition-colors cursor-pointer" onClick={() => ws ? ws.openPanel('forge-dashboard', 'tab') : router.push('/recommendations')}>
-              <div className="flex items-start gap-2">
-                <div className="w-[6px] h-[6px] rounded-full mt-1 flex-shrink-0 bg-red-500/60" />
-                <div className="flex-1 min-w-0">
-                  <div className="text-[10px] text-white/60 truncate leading-snug">{rec.title}</div>
-                  <div className="text-[9px] text-pcis-text-muted mt-0.5">{client.name} · {rec.timeframe}</div>
-                </div>
-                <span className="text-[8px] font-mono text-red-400/60 bg-red-500/[0.08] px-1.5 py-0.5 rounded flex-shrink-0">ACT</span>
-              </div>
-            </div>
-          ))}
-          {/* Upcoming touches */}
-          <div className="px-4 py-2">
-            <div className="text-[9px] text-pcis-text-muted uppercase tracking-wider mb-1.5">Upcoming</div>
-            {nextTouches.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()).slice(0, 3).map(t => {
-              const c = clients.find(cl => cl.id === t.clientId)!
-              return (
-                <div key={`${t.clientId}-${t.date}`} className="flex items-center gap-2 py-1">
-                  <span className="text-[8px] text-pcis-gold/40 font-mono w-10">{new Date(t.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                  <span className="text-[9px] text-white/40">{c.name}</span>
-                  <span className="text-[8px] text-pcis-text-muted ml-auto capitalize">{t.type}</span>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      </Panel>
-
-      {/* Intel Headlines */}
-      <Panel>
-        <PanelHeader title="Market Intel" accent="#d4a574"
-          right={<button onClick={() => ws ? ws.openPanel('scout-dashboard', 'tab') : router.push('/intel')} className="text-[9px] text-pcis-gold/50 hover:text-pcis-gold transition-colors">SCOUT →</button>} />
-        <div className="divide-y divide-pcis-border/10">
-          {topIntel.map(item => (
-            <div key={item.id} className="px-4 py-2.5 hover:bg-pcis-gold/[0.02] transition-colors cursor-pointer" onClick={() => ws ? ws.openPanel('scout-dashboard', 'tab') : router.push('/intel')}>
-              <div className="flex gap-2.5">
-                <div className="w-[3px] flex-shrink-0 rounded-full self-stretch"
-                  style={{ backgroundColor: item.urgency === 'High' ? '#ef4444' : item.urgency === 'Medium' ? '#d4a574' : '#6b7280' }} />
-                <div className="flex-1 min-w-0">
-                  <div className="text-[10px] text-white/50 leading-snug truncate">{item.headline}</div>
-                  <div className="text-[8px] text-pcis-text-muted mt-1">{item.type} · {ago(item.timestamp)}</div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </Panel>
-
-      {/* Market Data */}
-      <Panel>
-        <PanelHeader title="Market Data" />
-        <div className="divide-y divide-pcis-border/10">
-          {macros.map(m => (
-            <div key={m.id} className="px-4 py-2 flex items-center gap-2">
-              <div className="flex-1 min-w-0">
-                <span className="text-[9px] text-pcis-text-muted truncate block">{m.label}</span>
-              </div>
-              <MiniSparkline data={m.sparkline} color={m.trend >= 0 ? '#22c55e' : '#ef4444'} width={40} height={14} />
-              <span className="text-[10px] font-mono text-white/50 w-16 text-right flex-shrink-0">{m.value}</span>
-              <span className="text-[9px] font-mono w-10 text-right flex-shrink-0"
-                style={{ color: m.trend >= 0 ? '#22c55e' : '#ef4444' }}>
-                {m.trend >= 0 ? '+' : ''}{m.trend}%
-              </span>
-            </div>
-          ))}
-          {/* Area demand mini */}
-          <div className="px-4 py-2.5">
-            <div className="text-[9px] text-pcis-text-muted uppercase tracking-wider mb-2">Top Areas</div>
-            {areaMetrics.sort((a, b) => b.demandScore - a.demandScore).slice(0, 3).map(a => (
-              <div key={a.areaName} className="flex items-center gap-2 py-1">
-                <span className="text-[9px] text-white/40 w-20 truncate">{a.areaName}</span>
-                <div className="flex-1 h-[3px] bg-white/[0.04] rounded-full overflow-hidden">
-                  <div className="h-full rounded-full bg-pcis-gold/40" style={{ width: `${a.demandScore}%` }} />
-                </div>
-                <span className="text-[8px] font-mono text-pcis-gold/50">{a.demandScore}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </Panel>
-    </div>
-  )
-}
-
-
-// ═══════════════════════════════════════════════════════════════════════════
-// MAIN PAGE
+// MAIN PAGE — View Switcher
 // ═══════════════════════════════════════════════════════════════════════════
 
 export default function DashboardPage() {
+  const [view, setView] = useState<DashboardView>('today')
   const [cmdOpen, setCmdOpen] = useState(false)
   const router = useRouter()
   const ws = useWorkspaceSafe()
   const pk = usePlatformKey()
-  const cieClients = useCIEClients()
-  const scoutAreas = useScoutAreas()
-  const advisorDashboard = useAdvisorDashboard()
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -891,11 +1176,7 @@ export default function DashboardPage() {
       if (!cmdOpen && !e.metaKey && !e.ctrlKey && !e.altKey) {
         const eng = engineDefs.find(en => en.key === e.key)
         if (eng) {
-          if (ws) {
-            ws.openPanel(eng.panelType, 'tab')
-          } else {
-            router.push(eng.route)
-          }
+          ws ? ws.openPanel(eng.panelType, 'tab') : router.push(eng.route)
         }
       }
     }
@@ -903,12 +1184,33 @@ export default function DashboardPage() {
     return () => window.removeEventListener('keydown', handler)
   }, [cmdOpen, router, ws])
 
+  const views: { id: DashboardView; label: string; icon: string }[] = [
+    { id: 'today', label: 'Today', icon: '◉' },
+    { id: 'operations', label: 'Operations', icon: '⊞' },
+    { id: 'week', label: 'This Week', icon: '▦' },
+  ]
+
   return (
     <div className="space-y-4">
 
-      {/* Stats Bar */}
+      {/* ── View Switcher + Search ────────────────────── */}
       <div className="flex items-center justify-between">
-        <StatsBar cieClients={cieClients} />
+        <div className="flex items-center gap-1 bg-white/[0.02] border border-pcis-border/20 rounded-lg p-0.5">
+          {views.map(v => (
+            <button
+              key={v.id}
+              onClick={() => setView(v.id)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[11px] font-medium transition-all ${
+                view === v.id
+                  ? 'bg-pcis-gold/10 text-pcis-gold border border-pcis-gold/20'
+                  : 'text-pcis-text-muted hover:text-pcis-text-secondary hover:bg-white/[0.02] border border-transparent'
+              }`}
+            >
+              <span className="text-[10px]">{v.icon}</span>
+              {v.label}
+            </button>
+          ))}
+        </div>
         <button onClick={() => setCmdOpen(true)}
           className="flex items-center gap-2 text-[10px] text-pcis-text-muted hover:text-pcis-text-secondary transition-colors">
           <span>Search</span>
@@ -916,28 +1218,18 @@ export default function DashboardPage() {
         </button>
       </div>
 
-      {/* Engine Gateway Cards */}
-      <EngineCards cieClients={cieClients} areas={scoutAreas} dashboard={advisorDashboard} />
+      {/* ── Active View ──────────────────────────────── */}
+      {view === 'today' && <TodayView />}
+      {view === 'operations' && <OperationsView />}
+      {view === 'week' && <WeekView />}
 
-      {/* Portfolio Health + Pipeline + Latest News */}
-      <PortfolioHealth />
-
-      {/* Client Watchlist Table */}
-      <ClientWatchlist cieClients={cieClients} />
-
-      {/* Bottom: Matches | Actions | Intel | Market */}
-      <BottomRow />
-
-      {/* Morning Brief Orb */}
-      <DashboardBriefOrb />
-
-      {/* Footer hint */}
+      {/* ── Footer ───────────────────────────────────── */}
       <div className="flex items-center justify-center gap-4 text-[8px] text-pcis-text-muted/30 font-mono pb-2">
         <span>Press 1-4 for engines</span>
         <span>·</span>
         <span>{pk('⌘K')} search</span>
         <span>·</span>
-        <span>PCIS v1.0</span>
+        <span>PCIS V2.1</span>
       </div>
 
       <CmdPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
